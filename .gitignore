@@ -51,3 +51,19 @@ services/api/bin/
 
 # Superpowers / agent scratch (local)
 .superpowers/
+
+# Local photos and UX screenshots (keep captures out of git)
+docs/ux/*.png
+docs/ux/*.jpg
+docs/ux/*.jpeg
+docs/ux/*.webp
+docs/ux/*.gif
+docs/ux/*.heic
+docs/ux/*.PNG
+docs/ux/*.JPG
+docs/ux/*.JPEG
+docs/ux/*.WEBP
+docs/ux/*.GIF
+docs/ux/*.HEIC
+*.heic
+*.HEIC
