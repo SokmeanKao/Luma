@@ -1,0 +1,279 @@
+body {
+  font-family: var(--font-maven), 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 224px 1fr;
+  min-height: 100vh;
+}
+
+aside {
+  padding: 34px 22px;
+  border-right: 1px solid var(--line);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.nav {
+  padding: 12px 15px;
+  background: #edf4ec;
+  color: var(--green);
+  border-radius: 9px;
+  font-weight: 650;
+}
+
+.side-note {
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 22px 8px 0;
+}
+
+main {
+  padding: 30px 46px;
+  max-width: 1450px;
+  width: 100%;
+  margin: auto;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 30px 0 25px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.heading h1 {
+  font-size: 32px;
+  letter-spacing: -1px;
+  margin: 0 0 6px;
+  font-weight: 650;
+}
+
+.heading p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 310px 1fr;
+  gap: 22px;
+}
+
+.card {
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 15px;
+}
+
+.settings {
+  padding: 24px;
+}
+
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.settings h2 {
+  font-size: 16px;
+  margin: 6px 0 19px;
+}
+
+.btn {
+  border: 1px solid var(--line);
+  background: white;
+  padding: 10px 16px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.wide {
+  width: 100%;
+}
+
+.field {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+select.field-control {
+  width: 100%;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.notice {
+  background: #f2f6ef;
+  border-radius: 9px;
+  padding: 13px;
+  margin-top: 24px;
+  font-size: 12px;
+  color: #536d57;
+}
+
+.notice strong {
+  display: block;
+  color: var(--green);
+  margin-bottom: 4px;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: 580px;
+  overflow: hidden;
+}
+
+.live-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  background: #a3afa5;
+  border-radius: 50%;
+}
+
+.workspace.running .dot {
+  background: #4b9f69;
+  box-shadow: 0 0 0 4px #edf6eb;
+}
+
+.transcript {
+  padding: 25px 30px;
+  flex: 1;
+  overflow: auto;
+  height: 390px;
+  max-height: 440px;
+}
+
+.foot {
+  padding: 15px 24px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.wave {
+  display: flex;
+  gap: 3px;
+  height: 20px;
+  align-items: center;
+}
+
+.wave i {
+  width: 3px;
+  background: #9fb5a1;
+  border-radius: 3px;
+  height: 5px;
+}
+
+.workspace.running .wave i {
+  animation: wave 0.8s infinite alternate;
+}
+
+@keyframes wave {
+  to {
+    height: 3px;
+  }
+}
+
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px;
+  max-width: 440px;
+  width: calc(100% - 32px);
+  box-shadow: 0 20px 100px #122b2430;
+}
+
+dialog::backdrop {
+  background: #15251d66;
+}
+
+.choices {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.choice {
+  text-align: left;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: white;
+}
+
+.choice strong {
+  display: block;
+}
+
+.choice span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.real-disabled {
+  opacity: 0.7;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 12px;
+}
+
+@media (max-width: 820px) {
+  .app {
+    display: block;
+  }
+  aside {
+    display: none;
+  }
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  main {
+    padding: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace.running .wave i {
+    animation: none;
+  }
+}

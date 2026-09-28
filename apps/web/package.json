@@ -3,9 +3,26 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "echo pending",
-    "build": "echo pending",
-    "test": "echo pending",
-    "lint": "echo pending"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "playwright test",
+    "test:unit": "echo no-unit-tests"
+  },
+  "dependencies": {
+    "@luma/audio": "workspace:*",
+    "@luma/translation": "workspace:*",
+    "@luma/ui": "workspace:*",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "typescript": "^5.7.3"
   }
 }
