@@ -6,7 +6,10 @@ const shots = path.join(__dirname, '..', '..', '..', 'docs', 'ux');
 test('production home shows choose-source empty state', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /Understand what you’re listening to/i })).toBeVisible();
+  await expect(page.getByText(/1\. Choose languages/i)).toBeVisible();
+  await expect(page.getByText(/2\. Choose audio source/i)).toBeVisible();
   await expect(page.getByRole('button', { name: /Choose audio source/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Start translation/i })).toBeDisabled();
   await expect(page.getByText(/Playback audio only · Microphone off/i)).toBeVisible();
   await expect(page.getByRole('button', { name: /Start demo/i })).toHaveCount(0);
   await page.screenshot({ path: path.join(shots, 'after-empty-state.png'), fullPage: true });

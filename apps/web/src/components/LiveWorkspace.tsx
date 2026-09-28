@@ -41,7 +41,11 @@ function clock(n: number): string {
   return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
 }
 
-function statusCopy(state: SessionState, hasSource: boolean): string {
+function statusCopy(
+  state: SessionState,
+  hasSource: boolean,
+  pairOk: boolean,
+): string {
   switch (state) {
     case 'selecting':
       return 'Choose a source';
@@ -54,13 +58,19 @@ function statusCopy(state: SessionState, hasSource: boolean): string {
     case 'reconnecting':
       return 'Connecting';
     case 'stopped':
-      return hasSource ? 'Ready' : 'Choose a source';
+      return hasSource
+        ? pairOk
+          ? 'Audio ready — not translating'
+          : 'Choose a supported language pair'
+        : 'Choose languages, then an audio source';
     case 'quota_exhausted':
       return 'Quota exhausted';
     case 'error':
       return 'Something went wrong';
     default:
-      return hasSource ? 'Ready' : 'Choose a source';
+      if (!pairOk) return 'Choose a supported language pair';
+      if (hasSource) return 'Audio ready — not translating';
+      return 'Choose languages, then an audio source';
   }
 }
 
@@ -674,7 +684,9 @@ export function LiveWorkspace() {
     state === 'reconnecting' ||
     starting;
   const busy = sessionActive;
-  const showWorkspace = hasSource || sessionActive || entries.length > 0 || historyItems.length > 0 || state === 'error' || state === 'quota_exhausted';
+  const pairOk = pairAllowed(caps?.supportedPairs, sourceLang, targetLang);
+  const canStart = Boolean(hasSource && pairOk && caps?.liveTestAllowed);
+  const showSubtitles = hasSource || sessionActive || entries.length > 0 || historyItems.length > 0;
   const primaryLabel =
     state === 'listening'
       ? 'Pause'
@@ -683,11 +695,11 @@ export function LiveWorkspace() {
         : state === 'reconnecting' || state === 'connecting' || starting
           ? 'Connecting…'
           : 'Start translation';
-  const primaryDisabled =
-    starting ||
-    state === 'connecting' ||
-    state === 'reconnecting' ||
-    (!hasSource && state !== 'listening' && state !== 'paused');
+  // Start stays off until pair + source are ready. Pause/Resume stay usable while active.
+  const primaryBlocked =
+    state === 'listening' || state === 'paused'
+      ? false
+      : !canStart || starting || state === 'connecting' || state === 'reconnecting';
   const sourceLabelName = languageName(caps, sourceLang);
   const targetLabelName = languageName(caps, targetLang);
   const pairFilter =
@@ -708,53 +720,16 @@ export function LiveWorkspace() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <Brand compact={showWorkspace} />
+        <Brand compact={showSubtitles || hasSource} />
         <PrivacyLabel />
       </header>
 
       <div className={stageClass}>
-        {!showWorkspace ? (
-          <section className="empty-state" aria-labelledby="empty-title">
-            <h1 id="empty-title">Understand what you’re listening to</h1>
-            <p>Choose a Teams or YouTube tab, pick languages, and translate speech live.</p>
-            <LanguagePairControls
-              caps={caps}
-              source={sourceLang}
-              target={targetLang}
-              onRequestChange={requestLanguageChange}
-            />
-            <SourceBar
-              hasSource={false}
-              name=""
-              busy={busy}
-              onChoose={() => void selectAudioSource()}
-              onChange={() => void selectAudioSource()}
-            />
-            <p className="empty-hint">
-              Select the tab and enable “Share tab audio” in your browser.
-            </p>
-            {caps?.pairVerificationNote ? (
-              <p className="empty-hint">{caps.pairVerificationNote}</p>
-            ) : null}
-            {caps && !caps.liveTestAllowed ? (
-              <div className="gate-note">
-                Live translation opens after free-tier eligibility is confirmed.
-                <ul>
-                  {(caps.missingEligibilityEvidence ?? []).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {capsError ? (
-              <p className="empty-hint" role="status">
-                Translation service is unreachable. Start the Go API, then refresh.
-              </p>
-            ) : null}
-          </section>
-        ) : (
-          <>
-            <div className="toolbar">
+        <section className="setup-panel" aria-label="Translation setup">
+          <h1 className="setup-title">Understand what you’re listening to</h1>
+          <ol className="setup-steps">
+            <li>
+              <span className="setup-step-label">1. Choose languages</span>
               <LanguagePairControls
                 caps={caps}
                 source={sourceLang}
@@ -762,126 +737,169 @@ export function LiveWorkspace() {
                 disabled={starting || state === 'connecting' || state === 'reconnecting'}
                 onRequestChange={requestLanguageChange}
               />
-              <StatusLine>{statusCopy(state, hasSource)}</StatusLine>
-            </div>
-
-            <SourceBar
-              hasSource={hasSource}
-              name={sourceLabel}
-              detail={hasSource ? sourceDetail : undefined}
-              busy={busy}
-              onChoose={() => void selectAudioSource()}
-              onChange={() => void selectAudioSource()}
-            />
-
-            {errorText ? (
-              <div className="error-banner" role="alert">
-                <p>{errorText}</p>
-                {errorAction === 'choose-source' ? (
-                  <button type="button" className="btn btn-ghost" onClick={onErrorAction}>
-                    Choose source again
-                  </button>
-                ) : null}
-                {errorAction === 'retry' ? (
-                  <button type="button" className="btn btn-ghost" onClick={onErrorAction}>
-                    Retry connection
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-
-            <section className="subtitle-stage" aria-label="Subtitles">
-              <div className="subtitle-stage-head">
-                <div className="subtitle-toggles">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={showOriginal}
-                      onChange={(e) => setShowOriginal(e.target.checked)}
-                    />
-                    Show {sourceLabelName}
-                  </label>
-                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                    {sourceLabelName} → {targetLabelName}
-                  </span>
-                  {hasSource ? (
-                    <span style={{ color: 'var(--muted)', fontSize: 12 }} aria-live="off">
-                      Audio {Math.round(level * 100)}%
-                    </span>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  className="btn-link"
-                  onClick={() => {
-                    sessionRef.current?.clear();
-                    setEntries([]);
-                    setHistoryItems([]);
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-              <TranscriptPanel
-                items={transcriptItems}
-                fontSize={fontSize}
-                empty={
-                  <div className="transcript-empty">
-                    {hasSource
-                      ? 'Press Start translation when you’re ready.'
-                      : 'Choose an audio source to begin.'}
-                  </div>
-                }
+              <p className="empty-hint">
+                Confirm the pair before any audio is sent to Google. Last choice is remembered.
+              </p>
+            </li>
+            <li>
+              <span className="setup-step-label">2. Choose audio source</span>
+              <SourceBar
+                hasSource={hasSource}
+                name={sourceLabel}
+                detail={hasSource ? sourceDetail : undefined}
+                busy={busy}
+                onChoose={() => void selectAudioSource()}
+                onChange={() => void selectAudioSource()}
               />
-            </section>
-
-            <SessionControls
-              timerLabel={sessionActive || seconds > 0 ? clock(seconds) : undefined}
-              primaryLabel={primaryLabel}
-              onPrimary={onPrimary}
-              onStop={() => void onStop()}
-              primaryDisabled={primaryDisabled}
-              stopDisabled={!busy && state !== 'error' && state !== 'quota_exhausted'}
-            />
-
-            <details
-              className="settings-panel"
-              open={settingsOpen}
-              onToggle={(e) => setSettingsOpen((e.target as HTMLDetailsElement).open)}
-            >
-              <summary>
-                Settings
-                <span aria-hidden>{settingsOpen ? '▴' : '▾'}</span>
-              </summary>
-              <div className="settings-body">
-                <label>
-                  Subtitle size
-                  <input
-                    type="range"
-                    min={16}
-                    max={28}
-                    step={1}
-                    value={fontSize}
-                    onChange={(e) => setFontSize(Number(e.target.value))}
-                    aria-valuetext={`${fontSize} pixels`}
-                  />
-                </label>
-                <p style={{ margin: 0, color: 'var(--muted)' }}>
-                  Source-language filter for {sourceLabelName}: {pairFilter}. Provider support alone
-                  does not verify filtering.
-                </p>
-                {firstSubtitleMs != null ? (
-                  <p style={{ margin: 0, color: 'var(--muted)' }}>
-                    First subtitle measured at {firstSubtitleMs} ms
-                    {metrics ? ` · ${metrics}` : ''}
-                  </p>
-                ) : metrics ? (
-                  <p style={{ margin: 0, color: 'var(--muted)' }}>{metrics}</p>
-                ) : null}
+              <p className="empty-hint">
+                Select a Teams or YouTube tab and enable “Share tab audio”. You can do this before or
+                after languages.
+              </p>
+            </li>
+            <li>
+              <span className="setup-step-label">3. Start translation</span>
+              <div className="setup-start-row">
+                <StatusLine>{statusCopy(state, hasSource, pairOk)}</StatusLine>
+                <SessionControls
+                  timerLabel={sessionActive || seconds > 0 ? clock(seconds) : undefined}
+                  primaryLabel={primaryLabel}
+                  onPrimary={onPrimary}
+                  onStop={() => void onStop()}
+                  primaryDisabled={primaryBlocked}
+                  stopDisabled={!busy && state !== 'error' && state !== 'quota_exhausted'}
+                />
               </div>
-            </details>
-          </>
-        )}
+              {!canStart && !sessionActive ? (
+                <p className="empty-hint">
+                  {!pairOk
+                    ? 'Pick a verified language pair to continue.'
+                    : !hasSource
+                      ? 'Audio is not shared yet — Start stays off until a tab is ready.'
+                      : !caps?.liveTestAllowed
+                        ? 'Live translation is blocked until free-tier eligibility is confirmed.'
+                        : 'Start is available when languages and audio are ready.'}
+                </p>
+              ) : hasSource && !sessionActive ? (
+                <p className="empty-hint">Audio ready — not translating until you press Start.</p>
+              ) : null}
+            </li>
+          </ol>
+          {caps && !caps.liveTestAllowed ? (
+            <div className="gate-note">
+              Live translation opens after free-tier eligibility is confirmed.
+              <ul>
+                {(caps.missingEligibilityEvidence ?? []).map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {capsError ? (
+            <p className="empty-hint" role="status">
+              Translation service is unreachable. Start the Go API, then refresh.
+            </p>
+          ) : null}
+        </section>
+
+        {errorText ? (
+          <div className="error-banner" role="alert">
+            <p>{errorText}</p>
+            {errorAction === 'choose-source' ? (
+              <button type="button" className="btn btn-ghost" onClick={onErrorAction}>
+                Choose source again
+              </button>
+            ) : null}
+            {errorAction === 'retry' ? (
+              <button type="button" className="btn btn-ghost" onClick={onErrorAction}>
+                Retry connection
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        <section className="subtitle-stage" aria-label="Subtitles">
+          <div className="subtitle-stage-head">
+            <div className="subtitle-toggles">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={showOriginal}
+                  onChange={(e) => setShowOriginal(e.target.checked)}
+                />
+                Show {sourceLabelName}
+              </label>
+              <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                {sourceLabelName} → {targetLabelName}
+              </span>
+              {hasSource ? (
+                <span style={{ color: 'var(--muted)', fontSize: 12 }} aria-live="off">
+                  Audio {Math.round(level * 100)}%
+                </span>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="btn-link"
+              onClick={() => {
+                sessionRef.current?.clear();
+                setEntries([]);
+                setHistoryItems([]);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          <TranscriptPanel
+            items={transcriptItems}
+            fontSize={fontSize}
+            empty={
+              <div className="transcript-empty">
+                {sessionActive
+                  ? 'Listening for speech…'
+                  : hasSource
+                    ? 'Audio ready — press Start translation when you’re ready. Nothing is sent to Google yet.'
+                    : '1) Choose languages · 2) Choose audio source · 3) Start translation'}
+              </div>
+            }
+          />
+        </section>
+
+        <details
+          className="settings-panel"
+          open={settingsOpen && !sessionActive}
+          onToggle={(e) => setSettingsOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary>
+            Settings
+            <span aria-hidden>{settingsOpen ? '▴' : '▾'}</span>
+          </summary>
+          <div className="settings-body">
+            <label>
+              Subtitle size
+              <input
+                type="range"
+                min={16}
+                max={28}
+                step={1}
+                value={fontSize}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+                aria-valuetext={`${fontSize} pixels`}
+              />
+            </label>
+            <p style={{ margin: 0, color: 'var(--muted)' }}>
+              Source-language filter for {sourceLabelName}: {pairFilter}. Provider support alone does
+              not verify filtering.
+            </p>
+            {firstSubtitleMs != null ? (
+              <p style={{ margin: 0, color: 'var(--muted)' }}>
+                First subtitle measured at {firstSubtitleMs} ms
+                {metrics ? ` · ${metrics}` : ''}
+              </p>
+            ) : metrics ? (
+              <p style={{ margin: 0, color: 'var(--muted)' }}>{metrics}</p>
+            ) : null}
+          </div>
+        </details>
       </div>
 
       {pendingPair ? (
