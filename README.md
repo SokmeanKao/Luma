@@ -14,9 +14,13 @@ Personal live audio translation companion (Korean → English initially). Web MV
 | `docs/feasibility/STATUS.md` | Per-gate feasibility status |
 | `docs/CHECKLIST.md` | Foundation verification checklist |
 
-## Development (PowerShell)
+## Modes
 
-Work from the foundation worktree:
+| Mode | What it does |
+|---|---|
+| **Demo** | Sample subtitles only — not capture, not Gemini |
+| **Capture test** | Real browser tab/window share + activity meter — **no Gemini** |
+| **Live** | Disabled until F-04 evidence + provider gates pass |
 
 ```powershell
 cd C:\Dev\Luma\.worktrees\luma-foundation
@@ -24,7 +28,10 @@ pnpm install
 pnpm dev
 ```
 
-Open http://localhost:3000 — pill must read **Interactive demo · no audio captured**. Use **Start demo**.
+Open http://localhost:3000 → use **Capture test** → **Select audio source** → enable Share tab audio. Record results in `docs/feasibility/F04_CAPTURE_EVIDENCE.md`.
+
+Do **not** start Stage 3 (Gemini) until that evidence file is filled and free-tier eligibility is checked.
+
 
 Go API (separate terminal):
 

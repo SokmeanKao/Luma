@@ -1,0 +1,12 @@
+{
+  "name": "@luma/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Electron Windows client — Stage 5 (not implemented yet)",
+  "scripts": {
+    "dev": "echo Stage 5: Electron desktop not implemented yet",
+    "build": "echo Stage 5: Electron desktop not implemented yet",
+    "test": "echo Stage 5: no tests yet",
+    "lint": "echo Stage 5: no lint yet"
+  }
+}

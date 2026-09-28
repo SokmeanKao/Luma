@@ -1,41 +1,41 @@
-# Foundation verification checklist
+# Foundation + Stage 2 verification checklist
 
 Date: 28 September 2026  
 Branch: `feat/luma-foundation`  
-Scope: Plan 1 foundation (demo web MVP + Go stub). Live Gemini and Electron are out of scope.
+Next.js: **16.3.6** (`pnpm view next dist-tags.latest` → 16.3.6)
 
 ## Automated results
 
 | Check | Result |
 |---|---|
-| `pnpm --filter @luma/translation test` | pass (7) |
-| `pnpm --filter @luma/audio test` | pass (4) |
+| `pnpm --filter @luma/translation test` | pass |
+| `pnpm --filter @luma/audio test` | pass (includes activity meter) |
 | `cd services/api; go test ./...` | pass |
-| `pnpm --filter @luma/web build` | pass (Next.js 15.5.26) |
-| Playwright demo smoke (`apps/web`) | pass (system Chrome channel; Playwright browser download timed out) |
+| `pnpm --filter @luma/web lint` | pass |
+| `pnpm --filter @luma/web typecheck` | pass |
+| `pnpm --filter @luma/web build` | pass (Next.js 16.3.6 / Turbopack) |
+| Playwright demo smoke | pass (system Chrome) |
 
-## Requirements mapping (foundation)
+## Modes (must stay distinct)
 
-| ID | Requirement slice | Status |
+| Mode | Behavior | Claims translation? |
 |---|---|---|
-| CTL-01 Start/Pause/Stop/Clear | Demo session controls | pass (demo) |
-| CTL-02 Pause stops outbound audio | `isSendingAudio()` false when paused | pass (unit) |
-| CTL-03 Stop releases / rejects stale | generation ID rejection | pass (unit) |
-| CTL-04 One session | single controller instance in UI | pass (demo wiring) |
-| CAP-03 No microphone | `BrowserCaptureAdapter` uses only `getDisplayMedia`; source guard tests | pass (unit); live browser proof still pending F-04 |
-| CAP-04 Explicit source selection | Demo dialog; live chooser not wired in demo | pass (demo); live pending |
-| LNG-01 Source language | Korean only enabled | pass (UI + capabilities) |
-| LNG-02 Language filter | `shouldDisplayTranslation` + mock English skip | pass (unit/mock); live filter pending F-02 |
-| TXT-01 Incremental text | Mock emits during session | pass (demo) |
-| TXT-02 Partial/final | Assembler revises in place | pass (unit) |
-| SEC-01 No permanent key in clients | `.env.example` server-only; no `NEXT_PUBLIC_` secrets | pass |
-| SEC-02 Short-lived tokens | Endpoint returns `CONFIGURATION_MISSING` / not configured — never a fabricated token | pass (Go tests) |
-| COST / F-06 Quotas | No invented remaining minutes in capabilities | pass (Go tests) |
-| CAP-01/02/08–11 Live capture | Real Teams/YouTube/Windows capture | pending verification (F-04/F-05) |
-| F-01 Live translated text | Gemini streaming English from Korean audio | pending verification — blocker: credentials / provider path |
-| F-03 Ephemeral auth | Real Google mint | pending verification — blocker: mint not configured |
-| WIN-01 Electron window | Desktop app | pending verification — blocker: out of foundation scope |
+| Demo | Mock source dialog + sample subtitles | No — labeled demo |
+| Capture test | Real `getDisplayMedia` + activity meter | No — labeled no Gemini |
+| Live | Disabled until gates pass | N/A |
 
-## Feasibility gates
+## Stage 2 manual evidence
 
-See `docs/feasibility/STATUS.md` for per-gate status and concrete blockers.
+See `docs/feasibility/F04_CAPTURE_EVIDENCE.md` — **pending human Chrome/Edge runs**.
+
+## Requirements mapping (selected)
+
+| ID | Status |
+|---|---|
+| CTL-01–04 | pass (demo unit/UI) |
+| CAP-03 no mic | pass (unit + capture path uses display media only); live mic-denied proof pending F-04 |
+| CAP-04/08 chooser | pass in capture-test path (implementation); manual cancel proof pending F-04 |
+| F-01–F-03, F-06 | pending / blocked on credentials |
+| F-04 | pending verification (implementation ready; evidence blank) |
+| F-05 | blocked (Electron stub) |
+| Live Teams/YouTube E2E | pending Stage 4 |

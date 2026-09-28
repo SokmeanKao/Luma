@@ -1,5 +1,5 @@
 body {
-  font-family: var(--font-maven), 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
+  font-family: var(--font-maven), var(--font-noto-kr), 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
 }
 
 .app {

@@ -27,7 +27,11 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
       });
     } catch (err) {
       const name = err instanceof DOMException ? err.name : '';

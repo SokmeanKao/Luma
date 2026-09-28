@@ -7,3 +7,5 @@ export {
 export type { CaptureAdapter, CaptureStartResult, SourceKind } from './types';
 export { downmixToMono, pcmChunkDurationMs } from './encoder';
 export { BrowserCaptureAdapter } from './browser-capture';
+export { createActivityMeter, levelFromTimeDomain } from './activity-meter';
+export type { ActivityMeterHandle } from './activity-meter';
