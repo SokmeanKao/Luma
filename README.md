@@ -7,6 +7,7 @@ Personal live audio translation companion. The default app captures **browser ta
 | Path | Responsibility |
 |---|---|
 | `apps/web` | Next.js App Router — `LiveWorkspace` (default) |
+| `apps/desktop` | Electron Phase A — secure shell + floating subtitles (same live UI; tab capture) |
 | `packages/ui` | Shared React controls (dual transcript, status, brand) |
 | `packages/translation` | Gemini Live provider, session, language filter, mock (tests/demo) |
 | `packages/audio` | `getDisplayMedia` capture + PCM encoder (no microphone) |
@@ -31,6 +32,17 @@ pnpm --filter @luma/web dev --hostname 127.0.0.1 --port 3000
 ```
 
 Open http://127.0.0.1:3000
+
+### Electron desktop (Phase A)
+
+With the Go API still running:
+
+```powershell
+cd C:\Dev\Luma
+pnpm --filter @luma/desktop dev
+```
+
+Same live session UX as web (tab/`getDisplayMedia` capture). Use **Floating subtitles** / **Always on top** for the compact companion window. Native Windows loopback capture (F-05) is not implemented yet.
 
 1. Choose **From** / **To** languages
 2. Click **Choose audio source** → pick a **Chrome Tab** (Teams / YouTube) → enable **Share tab audio**

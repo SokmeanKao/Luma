@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AudioLinesIcon,
   EraserIcon,
@@ -170,11 +170,28 @@ function friendlyErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+export type LiveWorkspaceTranscriptSnapshot = {
+  entries: Array<{
+    id: string;
+    translatedText: string;
+    originalText?: string;
+    final: boolean;
+  }>;
+  statusLabel?: string;
+};
+
+export type LiveWorkspaceProps = {
+  /** Extra controls rendered in the top header (e.g. Electron float / always-on-top). */
+  headerExtra?: ReactNode;
+  /** Fired when transcript paragraphs change — used by Electron float window. */
+  onTranscriptSnapshot?: (snapshot: LiveWorkspaceTranscriptSnapshot) => void;
+};
+
 /**
  * Primary Luma web app: native tab picker → PCM → Gemini → English subtitles (+ optional voice).
  * Never falls back to demo samples on failure.
  */
-export function LiveWorkspace() {
+export function LiveWorkspace({ headerExtra, onTranscriptSnapshot }: LiveWorkspaceProps = {}) {
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [capsError, setCapsError] = useState<string | null>(null);
   const [state, setState] = useState<SessionState>('idle');
@@ -1046,6 +1063,20 @@ export function LiveWorkspace() {
     targetLang,
   }));
 
+  useEffect(() => {
+    if (!onTranscriptSnapshot) return;
+    const paragraphs = groupTranscriptParagraphs(entries);
+    onTranscriptSnapshot({
+      entries: paragraphs.map((p) => ({
+        id: p.id,
+        translatedText: p.translatedText,
+        originalText: p.originalText || undefined,
+        final: p.final,
+      })),
+      statusLabel: state,
+    });
+  }, [entries, state, onTranscriptSnapshot]);
+
   const transcriptItems: TranscriptItem[] = [
     ...historyItems,
     ...viewEntries.map((entry) => ({ kind: 'entry' as const, entry })),
@@ -1130,6 +1161,7 @@ export function LiveWorkspace() {
       <header className="app-header app-header--compact">
         <Brand compact />
         <PrivacyLabel />
+        {headerExtra ? <div className="app-header-extra">{headerExtra}</div> : null}
       </header>
 
       <div className={`${stageClass} stage--live`}>

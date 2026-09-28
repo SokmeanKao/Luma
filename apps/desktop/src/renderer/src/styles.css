@@ -1,0 +1,79 @@
+@import '@web/app/globals.css';
+
+:root {
+  --font-maven: 'Maven Pro', 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
+  --font-noto-kr: 'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
+  --font-noto-khmer: 'Noto Sans Khmer', system-ui, sans-serif;
+}
+
+.app-header-extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.float-body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.float-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 8px 10px 10px;
+}
+
+.float-drag {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.float-drag button {
+  -webkit-app-region: no-drag;
+}
+
+.float-status {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.float-scroll {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.float-line {
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.float-line--partial {
+  opacity: 0.75;
+}
+
+.float-original {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+}
+
+.float-empty {
+  color: var(--muted-foreground);
+  font-size: 14px;
+  margin: auto;
+  text-align: center;
+}

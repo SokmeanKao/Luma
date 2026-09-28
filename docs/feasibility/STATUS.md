@@ -5,7 +5,7 @@ Updated after worktree → `C:\Dev\Luma` migration and UX polish on `main`.
 ## Milestone
 
 **Web implementation complete enough for live validation** — not “all requirements complete.”  
-Windows browser support does **not** mean the Electron desktop app exists.
+Electron **Phase A** (secure shell + floating always-on-top window) exists; **F-05** native Windows playback capture is still Phase B.
 
 Earlier audit items already fixed later (docs drift, restart history, friendly errors, `providerAvailable`, capture-policy test) stay closed. Deferred gates below remain **unverified** until operator evidence is recorded.
 
@@ -21,7 +21,7 @@ Earlier audit items already fixed later (docs drift, restart history, friendly e
 | Voice + ducking E2E | **unverified** | Code present; suppress-capable tab proof pending |
 | `NEXT_PUBLIC_LUMA_MODE` | **live** | Supported: `live` \| `capture` \| `demo` |
 | F-04 Chrome/Edge capture matrix | **pending** | Env versions recorded; matrix empty |
-| F-05 Electron | **deferred / missing** | `apps/desktop` stub only |
+| F-05 Electron | **Phase A shell** | `@luma/desktop` runnable; capture still `getDisplayMedia`; loopback = Phase B |
 | Demo | explicit only | `?demo=1` — never silent fallback |
 
 ## Automated

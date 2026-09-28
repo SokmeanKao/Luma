@@ -19,7 +19,7 @@ Next.js: **16.3.6**
 | Gemini | Token mint + PCM→English smoke evidence recorded |
 | Real Chrome/Edge tab→translation | **Deferred / unverified** |
 | Source-language filtering, voice, ducking | Implemented in code; **E2E evidence incomplete** |
-| Electron desktop | **Deferred / not implemented** (Windows browser ≠ Electron app) |
+| Electron desktop | **Phase A shell** (`@luma/desktop` Electron + float); F-05 native capture **not done** |
 
 Earlier audit findings that listed those doc/history/error/`providerAvailable`/capture-policy gaps are **historical**. Prefer this section and the deferred backlog below.
 
@@ -49,7 +49,7 @@ Earlier audit findings that listed those doc/history/error/`providerAvailable`/c
 | F-02 language-filter E2E matrix | **unverified** |
 | F-04 Chrome/Edge capture matrix | **pending** |
 | Voice + ducking on real suppress-capable tab | **unverified** E2E |
-| F-05 Electron Windows client | **missing** (`apps/desktop` stub) |
+| F-05 Electron Windows client | **Phase A shell** (secure Electron + WIN-01 float); **F-05 loopback still missing** |
 
 ## Requirements mapping (selected)
 
@@ -61,5 +61,5 @@ Earlier audit findings that listed those doc/history/error/`providerAvailable`/c
 | F-01 mint + PCM smoke EN text | **partial / verified mint+PCM**; browser tab E2E **pending** |
 | F-02 language filter E2E | **unverified** (code present; matrix empty) |
 | F-04 Chrome/Edge capture matrix | **pending** |
-| F-05 Electron | **missing** (`apps/desktop` stub) |
+| F-05 Electron | **Phase A shell**; native Windows playback (F-05) **missing** until Phase B |
 | Live Teams/YouTube UI E2E | **pending** (needs human browser + free-tier) |

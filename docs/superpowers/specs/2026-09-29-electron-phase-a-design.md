@@ -1,7 +1,7 @@
 # Electron Phase A — Secure shell + floating window
 
 **Date:** 2026-09-29  
-**Status:** Approved (design conversation); awaiting implementation after plan  
+**Status:** Phase A implemented on `feat/electron-phase-a` (shell + float); F-05 loopback still Phase B  
 **Requirements:** WIN-01 (partial), SEC-01, architecture notes in `docs/REQUIREMENTS.md` §5 and `docs/IMPLEMENTATION.md`  
 **Out of scope for Phase A:** F-05 native Windows playback / loopback capture (Phase B), installer/signing, auto-update
 
