@@ -52,6 +52,24 @@ func TestCapabilities_ReportsMissingEligibility(t *testing.T) {
 	if body.LanguageFilterStatus != "unverified" {
 		t.Fatalf("filter=%s", body.LanguageFilterStatus)
 	}
+	if len(body.SupportedPairs) == 0 || body.SupportedPairs[0].Source != "ko" {
+		t.Fatalf("expected verified ko→en pair, got %#v", body.SupportedPairs)
+	}
+	if body.DefaultSourceLanguage != "ko" || body.DefaultTargetLanguage != "en" {
+		t.Fatalf("defaults=%s→%s", body.DefaultSourceLanguage, body.DefaultTargetLanguage)
+	}
+}
+
+func TestLiveToken_RejectsIdenticalLanguages(t *testing.T) {
+	srv := testServer("k", true, true)
+	payload := []byte(`{"sourceLanguage":"ko","targetLanguage":"ko"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/live-token", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", rr.Code)
+	}
 }
 
 func TestLiveToken_InvalidLanguage(t *testing.T) {

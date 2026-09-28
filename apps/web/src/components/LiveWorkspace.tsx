@@ -9,6 +9,7 @@ import {
   StatusLine,
   TranscriptPanel,
   type TranscriptEntryView,
+  type TranscriptItem,
 } from '@luma/ui';
 import {
   BrowserCaptureAdapter,
@@ -26,6 +27,15 @@ import {
   type TranscriptUpdate,
 } from '@luma/translation';
 import { fetchCapabilities, fetchLiveToken, type Capabilities } from '../lib/api';
+import {
+  LanguagePairControls,
+  languageName,
+  loadStoredPair,
+  pairAllowed,
+  storePair,
+  targetsForSource,
+  type LanguagePair,
+} from './LanguagePairControls';
 
 function clock(n: number): string {
   return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
@@ -78,6 +88,10 @@ export function LiveWorkspace() {
   const [metrics, setMetrics] = useState('');
   const [firstSubtitleMs, setFirstSubtitleMs] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
+  const [sourceLang, setSourceLang] = useState('ko');
+  const [targetLang, setTargetLang] = useState('en');
+  const [historyItems, setHistoryItems] = useState<TranscriptItem[]>([]);
+  const [pendingPair, setPendingPair] = useState<LanguagePair | null>(null);
 
   const sessionRef = useRef<ReturnType<typeof createSessionController> | null>(null);
   const providerRef = useRef<GeminiLiveProvider | null>(null);
@@ -95,14 +109,37 @@ export function LiveWorkspace() {
   const activeGenerationRef = useRef(0);
   const activeSessionIdRef = useRef<string | null>(null);
   const reconnectingRef = useRef(false);
+  const sourceLangRef = useRef(sourceLang);
+  const targetLangRef = useRef(targetLang);
 
   useEffect(() => {
     secondsRef.current = seconds;
   }, [seconds]);
 
   useEffect(() => {
+    sourceLangRef.current = sourceLang;
+    targetLangRef.current = targetLang;
+  }, [sourceLang, targetLang]);
+
+  useEffect(() => {
     void fetchCapabilities()
-      .then(setCaps)
+      .then((c) => {
+        setCaps(c);
+        const stored = loadStoredPair();
+        const pairs = c.supportedPairs ?? [];
+        let next: LanguagePair = {
+          source: c.defaultSourceLanguage || 'ko',
+          target: c.defaultTargetLanguage || 'en',
+        };
+        if (stored && pairAllowed(pairs, stored.source, stored.target)) {
+          next = stored;
+        } else if (!pairAllowed(pairs, next.source, next.target) && pairs[0]) {
+          next = { source: pairs[0].source, target: pairs[0].target };
+        }
+        setSourceLang(next.source);
+        setTargetLang(next.target);
+        storePair(next);
+      })
       .catch((e) => setCapsError(e instanceof Error ? e.message : 'capabilities failed'));
 
     const session = createSessionController({
@@ -161,7 +198,7 @@ export function LiveWorkspace() {
     setSourceDetail('Browser tab · Share tab audio required');
   }
 
-  async function hardStop(updateUi: boolean) {
+  async function closeProviderOnly() {
     providerRef.current?.pauseSending();
     await providerRef.current?.close();
     providerRef.current = null;
@@ -169,12 +206,90 @@ export function LiveWorkspace() {
     activeGenerationRef.current = sessionRef.current?.getGenerationId() ?? activeGenerationRef.current + 1;
     activeSessionIdRef.current = null;
     reconnectingRef.current = false;
-    releaseCapture();
     translatingRef.current = false;
+    stopPcmGraph();
     setStarting(false);
+  }
+
+  async function hardStop(updateUi: boolean) {
+    await closeProviderOnly();
+    releaseCapture();
     if (updateUi) {
       setErrorText(null);
       setErrorAction(null);
+    }
+  }
+
+  function applyLanguagePair(next: LanguagePair) {
+    setSourceLang(next.source);
+    setTargetLang(next.target);
+    sourceLangRef.current = next.source;
+    targetLangRef.current = next.target;
+    storePair(next);
+  }
+
+  function requestLanguageChange(next: LanguagePair) {
+    if (next.source === sourceLang && next.target === targetLang) return;
+    if (!caps || !pairAllowed(caps.supportedPairs, next.source, next.target)) {
+      setErrorText('That language pair is not verified for Luma yet.');
+      setErrorAction(null);
+      return;
+    }
+    const targets = targetsForSource(caps.supportedPairs, next.source);
+    if (!targets.includes(next.target)) {
+      setErrorText('Target language is not available for the selected source.');
+      setErrorAction(null);
+      return;
+    }
+    const active =
+      state === 'listening' ||
+      state === 'paused' ||
+      state === 'connecting' ||
+      state === 'reconnecting' ||
+      starting;
+    if (active) {
+      setPendingPair(next);
+      return;
+    }
+    applyLanguagePair(next);
+  }
+
+  async function confirmLanguageRestart() {
+    if (!pendingPair) return;
+    const next = pendingPair;
+    setPendingPair(null);
+
+    const oldLabel = `${languageName(caps, sourceLang)} → ${languageName(caps, targetLang)}`;
+    const newLabel = `${languageName(caps, next.source)} → ${languageName(caps, next.target)}`;
+    const snapshot: TranscriptItem[] = entries.map((e) => ({
+      kind: 'entry' as const,
+      entry: {
+        segmentId: `hist-${e.segmentId}-${Date.now()}`,
+        timeLabel: clock(Math.floor(e.captureTimestamp / 1000)),
+        originalText: e.originalText,
+        translatedText: e.translatedText,
+        showOriginal,
+        fontSize,
+        final: e.final,
+        sourceLang,
+        targetLang,
+      },
+    }));
+    if (snapshot.length > 0 || historyItems.length > 0) {
+      setHistoryItems((prev) => [
+        ...prev,
+        ...snapshot,
+        { kind: 'divider', id: `div-${Date.now()}`, label: `${oldLabel} · now ${newLabel}` },
+      ]);
+    }
+
+    await closeProviderOnly();
+    sessionRef.current?.clear();
+    setEntries([]);
+    applyLanguagePair(next);
+    setState('idle');
+    if (streamRef.current && hasSource) {
+      void startTranslation();
     }
   }
 
@@ -331,7 +446,10 @@ export function LiveWorkspace() {
 
     let token;
     try {
-      token = await fetchLiveToken();
+      token = await fetchLiveToken({
+        sourceLanguage: sourceLangRef.current,
+        targetLanguage: targetLangRef.current,
+      });
     } catch (err) {
       const code = (err as { code?: string }).code;
       setErrorText(`${code ?? 'ERROR'}: ${err instanceof Error ? err.message : 'Could not start a secure session.'}`);
@@ -353,7 +471,7 @@ export function LiveWorkspace() {
         firstSeen.current = true;
         const ms = Date.now() - sessionStartedAt.current;
         setFirstSubtitleMs(ms);
-        setMetrics(`First English subtitle ~${ms} ms after connect (measured; not a guarantee).`);
+        setMetrics(`First subtitle ~${ms} ms after connect (measured; not a guarantee).`);
       }
       session.acceptTranscript({
         ...update,
@@ -391,13 +509,16 @@ export function LiveWorkspace() {
           try {
             provider.pauseSending();
             await provider.close();
-            const next = await fetchLiveToken();
+            const next = await fetchLiveToken({
+              sourceLanguage: sourceLangRef.current,
+              targetLanguage: targetLangRef.current,
+            });
             if (activeSessionIdRef.current !== sessionId || providerRef.current !== provider) return;
             await provider.connect(
               {
                 mode: 'real',
-                sourceLanguage: 'ko',
-                targetLanguage: 'en',
+                sourceLanguage: sourceLangRef.current,
+                targetLanguage: targetLangRef.current,
                 sessionId,
               },
               {
@@ -450,8 +571,8 @@ export function LiveWorkspace() {
       await provider.connect(
         {
           mode: 'real',
-          sourceLanguage: 'ko',
-          targetLanguage: 'en',
+          sourceLanguage: sourceLangRef.current,
+          targetLanguage: targetLangRef.current,
           sessionId,
         },
         {
@@ -467,8 +588,8 @@ export function LiveWorkspace() {
       );
       session.start({
         mode: 'real',
-        sourceLanguage: 'ko',
-        targetLanguage: 'en',
+        sourceLanguage: sourceLangRef.current,
+        targetLanguage: targetLangRef.current,
         sessionId,
       });
       activeGenerationRef.current = session.getGenerationId();
@@ -537,7 +658,14 @@ export function LiveWorkspace() {
     showOriginal,
     fontSize,
     final: e.final,
+    sourceLang,
+    targetLang,
   }));
+
+  const transcriptItems: TranscriptItem[] = [
+    ...historyItems,
+    ...viewEntries.map((entry) => ({ kind: 'entry' as const, entry })),
+  ];
 
   const sessionActive =
     state === 'listening' ||
@@ -546,7 +674,7 @@ export function LiveWorkspace() {
     state === 'reconnecting' ||
     starting;
   const busy = sessionActive;
-  const showWorkspace = hasSource || sessionActive || entries.length > 0 || state === 'error' || state === 'quota_exhausted';
+  const showWorkspace = hasSource || sessionActive || entries.length > 0 || historyItems.length > 0 || state === 'error' || state === 'quota_exhausted';
   const primaryLabel =
     state === 'listening'
       ? 'Pause'
@@ -560,6 +688,12 @@ export function LiveWorkspace() {
     state === 'connecting' ||
     state === 'reconnecting' ||
     (!hasSource && state !== 'listening' && state !== 'paused');
+  const sourceLabelName = languageName(caps, sourceLang);
+  const targetLabelName = languageName(caps, targetLang);
+  const pairFilter =
+    caps?.supportedPairs?.find((p) => p.source === sourceLang && p.target === targetLang)?.filterStatus ??
+    caps?.languageFilterStatus ??
+    'unverified';
   const stageClass = [
     'stage',
     state === 'listening' ? 'is-listening is-active' : '',
@@ -582,7 +716,13 @@ export function LiveWorkspace() {
         {!showWorkspace ? (
           <section className="empty-state" aria-labelledby="empty-title">
             <h1 id="empty-title">Understand what you’re listening to</h1>
-            <p>Choose a Teams or YouTube tab to translate its speech into English.</p>
+            <p>Choose a Teams or YouTube tab, pick languages, and translate speech live.</p>
+            <LanguagePairControls
+              caps={caps}
+              source={sourceLang}
+              target={targetLang}
+              onRequestChange={requestLanguageChange}
+            />
             <SourceBar
               hasSource={false}
               name=""
@@ -593,6 +733,9 @@ export function LiveWorkspace() {
             <p className="empty-hint">
               Select the tab and enable “Share tab audio” in your browser.
             </p>
+            {caps?.pairVerificationNote ? (
+              <p className="empty-hint">{caps.pairVerificationNote}</p>
+            ) : null}
             {caps && !caps.liveTestAllowed ? (
               <div className="gate-note">
                 Live translation opens after free-tier eligibility is confirmed.
@@ -612,9 +755,13 @@ export function LiveWorkspace() {
         ) : (
           <>
             <div className="toolbar">
-              <div className="lang-chip" aria-label="Translation languages">
-                Korean <span aria-hidden>→</span> English
-              </div>
+              <LanguagePairControls
+                caps={caps}
+                source={sourceLang}
+                target={targetLang}
+                disabled={starting || state === 'connecting' || state === 'reconnecting'}
+                onRequestChange={requestLanguageChange}
+              />
               <StatusLine>{statusCopy(state, hasSource)}</StatusLine>
             </div>
 
@@ -652,8 +799,11 @@ export function LiveWorkspace() {
                       checked={showOriginal}
                       onChange={(e) => setShowOriginal(e.target.checked)}
                     />
-                    Show Korean
+                    Show {sourceLabelName}
                   </label>
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    {sourceLabelName} → {targetLabelName}
+                  </span>
                   {hasSource ? (
                     <span style={{ color: 'var(--muted)', fontSize: 12 }} aria-live="off">
                       Audio {Math.round(level * 100)}%
@@ -666,13 +816,14 @@ export function LiveWorkspace() {
                   onClick={() => {
                     sessionRef.current?.clear();
                     setEntries([]);
+                    setHistoryItems([]);
                   }}
                 >
                   Clear
                 </button>
               </div>
               <TranscriptPanel
-                entries={viewEntries}
+                items={transcriptItems}
                 fontSize={fontSize}
                 empty={
                   <div className="transcript-empty">
@@ -716,8 +867,8 @@ export function LiveWorkspace() {
                   />
                 </label>
                 <p style={{ margin: 0, color: 'var(--muted)' }}>
-                  Language filter: {caps?.languageFilterStatus ?? 'unverified'} (best-effort when the
-                  provider reports a source language).
+                  Source-language filter for {sourceLabelName}: {pairFilter}. Provider support alone
+                  does not verify filtering.
                 </p>
                 {firstSubtitleMs != null ? (
                   <p style={{ margin: 0, color: 'var(--muted)' }}>
@@ -732,6 +883,35 @@ export function LiveWorkspace() {
           </>
         )}
       </div>
+
+      {pendingPair ? (
+        <div className="confirm-backdrop" role="presentation">
+          <div
+            className="confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="lang-restart-title"
+          >
+            <h2 id="lang-restart-title">Restart translation?</h2>
+            <p>
+              Changing languages ends the current session. Pending audio is discarded, a new token is
+              minted, and late results from the old session are ignored. Existing subtitles stay above
+              a language-pair divider.
+            </p>
+            <p>
+              Switch to {languageName(caps, pendingPair.source)} → {languageName(caps, pendingPair.target)}?
+            </p>
+            <div className="confirm-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setPendingPair(null)}>
+                Keep current
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void confirmLanguageRestart()}>
+                Restart with new languages
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

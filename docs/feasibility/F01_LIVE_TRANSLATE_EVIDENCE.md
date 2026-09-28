@@ -31,11 +31,15 @@ If eligibility is unconfirmed, set `FREE_TIER_ELIGIBILITY_CONFIRMED=false` and r
 | `POST /api/v1/live-token` | HTTP 200, api=v1beta, temporary credential minted |
 | Permanent key on backend only | yes (not in web bundle) |
 
-## Live test runs (short Korean sample)
+## Live test runs (short samples)
 
-| Run | Source | First subtitle ms | English text observed? | Errors | Notes |
-|---|---|---|---|---|---|
-| 1 | pending | pending | pending | pending | Operator: YouTube Korean tab + Share tab audio → Start |
+| Run | Pair | Source media | First subtitle ms | Target text observed? | Errors | Notes |
+|---|---|---|---|---|---|---|
+| 1 | ko→en | pending | pending | pending | pending | Only verified pair in catalog today |
+| — | ja→en | — | — | — | — | **Not in catalog** until real-audio verification |
+| — | ko→fr | — | — | — | — | **Not in catalog** until real-audio verification |
+
+Dropdown options come only from `supportedPairs` in `/api/v1/capabilities`. Provider language lists alone do **not** add a pair.
 
 ## Filtering (separate from F-01)
 

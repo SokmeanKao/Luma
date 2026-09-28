@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/luma-app/luma/services/api/internal/config"
+	"github.com/luma-app/luma/services/api/internal/languages"
 )
 
 const maxBody = 64 * 1024
@@ -32,16 +33,21 @@ type healthResponse struct {
 }
 
 type capabilitiesResponse struct {
-	SourceLanguages              []string `json:"sourceLanguages"`
-	TargetLanguages              []string `json:"targetLanguages"`
-	ProviderAvailable            bool     `json:"providerAvailable"`
-	ModelConfigured              bool     `json:"modelConfigured"`
-	MintEnabled                  bool     `json:"mintEnabled"`
-	FreeTierEligibilityConfirmed bool     `json:"freeTierEligibilityConfirmed"`
-	Model                        string   `json:"model,omitempty"`
-	LiveTestAllowed              bool     `json:"liveTestAllowed"`
-	MissingEligibilityEvidence   []string `json:"missingEligibilityEvidence,omitempty"`
-	LanguageFilterStatus         string   `json:"languageFilterStatus"`
+	Languages                    []languages.Language     `json:"languages"`
+	SupportedPairs               []languages.VerifiedPair `json:"supportedPairs"`
+	DefaultSourceLanguage        string                   `json:"defaultSourceLanguage"`
+	DefaultTargetLanguage        string                   `json:"defaultTargetLanguage"`
+	SourceLanguages              []string                 `json:"sourceLanguages"`
+	TargetLanguages              []string                 `json:"targetLanguages"`
+	ProviderAvailable            bool                     `json:"providerAvailable"`
+	ModelConfigured              bool                     `json:"modelConfigured"`
+	MintEnabled                  bool                     `json:"mintEnabled"`
+	FreeTierEligibilityConfirmed bool                     `json:"freeTierEligibilityConfirmed"`
+	Model                        string                   `json:"model,omitempty"`
+	LiveTestAllowed              bool                     `json:"liveTestAllowed"`
+	MissingEligibilityEvidence   []string                 `json:"missingEligibilityEvidence,omitempty"`
+	LanguageFilterStatus         string                   `json:"languageFilterStatus"`
+	PairVerificationNote         string                   `json:"pairVerificationNote"`
 }
 
 type liveTokenRequest struct {
@@ -100,9 +106,14 @@ func (s *Server) missingEligibility() []string {
 func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	missing := s.missingEligibility()
 	mintOK := s.cfg.EnableLiveTokenMint && s.cfg.GeminiAPIKey != ""
+	defSrc, defTgt := languages.DefaultPair()
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
-		SourceLanguages:              []string{"ko"},
-		TargetLanguages:              []string{"en"},
+		Languages:                    languages.AllLanguages(),
+		SupportedPairs:               languages.VerifiedPairs(),
+		DefaultSourceLanguage:        defSrc,
+		DefaultTargetLanguage:        defTgt,
+		SourceLanguages:              languages.SourceCodes(),
+		TargetLanguages:              languages.TargetCodes(),
 		ProviderAvailable:            false, // product Live stays unverified until evidence recorded
 		ModelConfigured:              strings.TrimSpace(s.cfg.GeminiModel) != "",
 		MintEnabled:                  mintOK,
@@ -110,7 +121,8 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		Model:                        s.cfg.GeminiModel,
 		LiveTestAllowed:              mintOK && s.cfg.FreeTierEligibilityConfirmed,
 		MissingEligibilityEvidence:   missing,
-		LanguageFilterStatus:         "unverified", // echoTargetLanguage≠Korean-only allowlist
+		LanguageFilterStatus:         languages.PairFilterStatus(defSrc, defTgt),
+		PairVerificationNote:         "Dropdown options come only from verifiedPairs. Provider translation support alone does not add a pair; record real-audio evidence before expanding the catalog.",
 	})
 }
 
@@ -132,8 +144,18 @@ func (s *Server) handleLiveToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "INVALID_CONFIG", "Invalid JSON body")
 		return
 	}
-	if req.SourceLanguage != "ko" || req.TargetLanguage != "en" {
-		writeErr(w, http.StatusBadRequest, "INVALID_CONFIG", "Unsupported language configuration")
+	src := languages.Normalize(req.SourceLanguage)
+	tgt := languages.Normalize(req.TargetLanguage)
+	if src == "" || tgt == "" {
+		writeErr(w, http.StatusBadRequest, "INVALID_CONFIG", "sourceLanguage and targetLanguage are required")
+		return
+	}
+	if src == tgt {
+		writeErr(w, http.StatusBadRequest, "INVALID_CONFIG", "Source and target languages must differ")
+		return
+	}
+	if !languages.IsPairAllowed(src, tgt) {
+		writeErr(w, http.StatusBadRequest, "INVALID_CONFIG", "Unsupported language pair: "+src+"→"+tgt+". Only verified pairs from /api/v1/capabilities are accepted.")
 		return
 	}
 
@@ -176,7 +198,7 @@ func (s *Server) handleLiveToken(w http.ResponseWriter, r *http.Request) {
 		Model:               s.cfg.GeminiModel,
 		APIVersion:          apiVersion,
 		WebsocketURL:        ws,
-		TargetLanguageCode:  s.cfg.TargetLanguageCode,
+		TargetLanguageCode:  tgt,
 		EchoTargetLanguage:  false,
 		SetupLocked:         false,
 	})

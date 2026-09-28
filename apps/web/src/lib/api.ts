@@ -1,4 +1,20 @@
+export type LanguageInfo = {
+  code: string;
+  name: string;
+};
+
+export type SupportedPair = {
+  source: string;
+  target: string;
+  filterStatus: string;
+  notes?: string;
+};
+
 export type Capabilities = {
+  languages: LanguageInfo[];
+  supportedPairs: SupportedPair[];
+  defaultSourceLanguage: string;
+  defaultTargetLanguage: string;
   sourceLanguages: string[];
   targetLanguages: string[];
   providerAvailable: boolean;
@@ -9,6 +25,7 @@ export type Capabilities = {
   liveTestAllowed: boolean;
   missingEligibilityEvidence?: string[];
   languageFilterStatus: string;
+  pairVerificationNote?: string;
 };
 
 export type LiveTokenResponse = {
@@ -32,14 +49,20 @@ export async function fetchCapabilities(): Promise<Capabilities> {
   return (await res.json()) as Capabilities;
 }
 
-export async function fetchLiveToken(): Promise<LiveTokenResponse> {
+export async function fetchLiveToken(opts: {
+  sourceLanguage: string;
+  targetLanguage: string;
+}): Promise<LiveTokenResponse> {
   const res = await fetch(`${API_BASE}/api/v1/live-token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Origin: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
     },
-    body: JSON.stringify({ sourceLanguage: 'ko', targetLanguage: 'en' }),
+    body: JSON.stringify({
+      sourceLanguage: opts.sourceLanguage,
+      targetLanguage: opts.targetLanguage,
+    }),
     cache: 'no-store',
   });
   const body = await res.json();

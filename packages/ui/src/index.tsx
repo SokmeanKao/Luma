@@ -77,26 +77,42 @@ export type TranscriptEntryView = {
   showOriginal: boolean;
   fontSize: number;
   final: boolean;
+  sourceLang?: string;
+  targetLang?: string;
 };
 
+export type TranscriptItem =
+  | { kind: 'divider'; id: string; label: string }
+  | { kind: 'entry'; entry: TranscriptEntryView };
+
 export function TranscriptPanel({
+  items,
   entries,
   empty,
   fontSize,
 }: {
-  entries: TranscriptEntryView[];
+  items?: TranscriptItem[];
+  entries?: TranscriptEntryView[];
   empty: ReactNode;
   fontSize: number;
 }) {
+  const resolved: TranscriptItem[] =
+    items ??
+    (entries ?? []).map((entry) => ({
+      kind: 'entry' as const,
+      entry,
+    }));
+
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
   const [showJump, setShowJump] = useState(false);
+  const entryCount = resolved.filter((i) => i.kind === 'entry').length;
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !pinned) return;
     el.scrollTop = el.scrollHeight;
-  }, [entries, pinned]);
+  }, [resolved, pinned]);
 
   function onScroll() {
     const el = scrollerRef.current;
@@ -104,7 +120,7 @@ export function TranscriptPanel({
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distance < 48;
     setPinned(atBottom);
-    setShowJump(!atBottom && entries.length > 0);
+    setShowJump(!atBottom && entryCount > 0);
   }
 
   function jumpToLatest() {
@@ -127,28 +143,34 @@ export function TranscriptPanel({
         tabIndex={0}
         style={{ ['--subtitle-size' as string]: `${fontSize}px` }}
       >
-        {entries.length === 0 ? empty : null}
-        {entries.map((entry) => (
-          <article
-            key={entry.segmentId}
-            className={`subtitle-row${entry.final ? ' is-final' : ' is-provisional'}`}
-          >
-            <time className="subtitle-time" dateTime={entry.timeLabel}>
-              {entry.timeLabel}
-            </time>
-            <div className="subtitle-body">
-              {entry.showOriginal && entry.originalText ? (
-                <p className="subtitle-ko" lang="ko">
-                  {entry.originalText}
-                </p>
-              ) : null}
-              <p className="subtitle-en" lang="en">
-                {entry.translatedText}
-                {!entry.final ? <span className="provisional-mark"> · updating</span> : null}
-              </p>
+        {entryCount === 0 && !resolved.some((i) => i.kind === 'divider') ? empty : null}
+        {resolved.map((item) =>
+          item.kind === 'divider' ? (
+            <div key={item.id} className="pair-divider" role="separator">
+              <span>{item.label}</span>
             </div>
-          </article>
-        ))}
+          ) : (
+            <article
+              key={item.entry.segmentId}
+              className={`subtitle-row${item.entry.final ? ' is-final' : ' is-provisional'}`}
+            >
+              <time className="subtitle-time" dateTime={item.entry.timeLabel}>
+                {item.entry.timeLabel}
+              </time>
+              <div className="subtitle-body">
+                {item.entry.showOriginal && item.entry.originalText ? (
+                  <p className="subtitle-ko" lang={item.entry.sourceLang ?? 'und'}>
+                    {item.entry.originalText}
+                  </p>
+                ) : null}
+                <p className="subtitle-en" lang={item.entry.targetLang ?? 'en'}>
+                  {item.entry.translatedText}
+                  {!item.entry.final ? <span className="provisional-mark"> · updating</span> : null}
+                </p>
+              </div>
+            </article>
+          ),
+        )}
       </div>
       {showJump ? (
         <button type="button" className="jump-latest" onClick={jumpToLatest}>
@@ -243,5 +265,11 @@ export function TranscriptList({
   entries: TranscriptEntryView[];
   emptyMessage: string;
 }) {
-  return <TranscriptPanel entries={entries} empty={<div className="transcript-empty">{emptyMessage}</div>} fontSize={entries[0]?.fontSize ?? 20} />;
+  return (
+    <TranscriptPanel
+      entries={entries}
+      empty={<div className="transcript-empty">{emptyMessage}</div>}
+      fontSize={entries[0]?.fontSize ?? 20}
+    />
+  );
 }

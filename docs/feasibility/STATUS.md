@@ -8,8 +8,9 @@ Updated after switching the default UI to the live capture→Gemini flow.
 | Mic never requested | implemented | display-media only |
 | Video not sent to Gemini | implemented | audio PCM path only |
 | Temporary token via Go | implemented | v1beta mint verified HTTP 200 |
-| English subtitles from Korean | **pending manual** | Run YouTube Korean sample; record in F01 |
-| Language filter | **unverified** | Suppresses non-`ko` when `languageCode` present; not proven E2E |
+| English subtitles from Korean | **pending manual** | Only verified pair today: ko→en |
+| Selectable language pairs | implemented | Searchable from/to; catalog-driven; swap disabled until reverse verified |
+| Language filter | **unverified** | Uses selected source code; not proven E2E |
 | F-04 Chrome/Edge capture matrix | **pending** | Env versions recorded; matrix empty |
 | F-05 Electron | pending | After web verification |
 | Demo | explicit only | “Open Dev demo” — never silent fallback |

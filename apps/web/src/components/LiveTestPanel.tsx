@@ -155,7 +155,7 @@ export function LiveTestPanel() {
 
     let token;
     try {
-      token = await fetchLiveToken();
+      token = await fetchLiveToken({ sourceLanguage: 'ko', targetLanguage: 'en' });
     } catch (err) {
       const code = (err as { code?: string }).code;
       setErrorText(

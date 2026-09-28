@@ -17,4 +17,9 @@ describe('shouldDisplayTranslation', () => {
   it('hides unrelated languages', () => {
     expect(shouldDisplayTranslation({ selectedSource: 'ko', detectedSource: 'ja' })).toBe(false);
   });
+
+  it('filters to the selected source language (e.g. Japanese)', () => {
+    expect(shouldDisplayTranslation({ selectedSource: 'ja', detectedSource: 'ja-JP' })).toBe(true);
+    expect(shouldDisplayTranslation({ selectedSource: 'ja', detectedSource: 'en' })).toBe(false);
+  });
 });

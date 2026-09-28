@@ -77,6 +77,8 @@ export interface TranslationProvider {
 }
 
 export const SUPPORTED_SOURCE_LANGUAGES = ['ko'] as const;
+/** Expand only when a verified pair is added to the Go languages catalog. */
+export const DEFAULT_LANGUAGE_PAIR = { source: 'ko', target: 'en' } as const;
 
 /** Discard provider-generated audio output for the subtitle MVP (do not play it). */
 export const DISCARD_PROVIDER_AUDIO_OUTPUT = true;
