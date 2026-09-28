@@ -17,7 +17,7 @@ export { createSessionController } from './session';
 export type { SessionController, SessionControllerOptions } from './session';
 export { MockTranslationProvider } from './mock-provider';
 export { GeminiLiveProvider } from './gemini-live-provider';
-export { shouldDisplayTranslation } from './language-filter';
+export { shouldDisplayTranslation, normalizeLanguageCode } from './language-filter';
 export {
   shouldRetry,
   nextBackoffMs,

@@ -9,9 +9,16 @@ import {
 
 export { NEVER_USES_MICROPHONE };
 
+type DisplayMediaOpts = MediaStreamConstraints & {
+  preferCurrentTab?: boolean;
+  selfBrowserSurface?: 'include' | 'exclude';
+  systemAudio?: 'include' | 'exclude';
+};
+
 /**
  * Browser tab/window capture via getDisplayMedia.
  * Must be invoked from a user gesture. Never opens the microphone input API.
+ * Video may be required by the capture API but is never sent to Gemini.
  */
 export class BrowserCaptureAdapter implements CaptureAdapter {
   async start(opts?: {
@@ -23,16 +30,22 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
       throw new Error('getDisplayMedia is not available in this browser');
     }
 
+    const constraints: DisplayMediaOpts = {
+      video: true,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+      // Prefer excluding this surface and system audio when the UA supports it.
+      selfBrowserSurface: 'exclude',
+      systemAudio: 'exclude',
+      preferCurrentTab: false,
+    };
+
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
+      stream = await navigator.mediaDevices.getDisplayMedia(constraints);
     } catch (err) {
       const name = err instanceof DOMException ? err.name : '';
       if (name === 'NotAllowedError' || name === 'AbortError') {
@@ -47,8 +60,24 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
       throw new NoAudioTrackError();
     }
 
+    const audio = audioTracks[0]!;
+    const video = stream.getVideoTracks()[0];
+    const displaySurface =
+      (video?.getSettings() as { displaySurface?: string } | undefined)?.displaySurface ??
+      (audio.getSettings() as { displaySurface?: string }).displaySurface;
+    const label =
+      audio.label ||
+      video?.label ||
+      (displaySurface === 'browser'
+        ? 'Browser tab'
+        : displaySurface === 'window'
+          ? 'Application window'
+          : displaySurface === 'monitor'
+            ? 'Entire screen'
+            : 'Selected playback source');
+
     const sourceKind: SourceKind =
-      opts?.preferredSourceKind === 'system' ? 'system' : 'tab';
+      displaySurface === 'monitor' || opts?.preferredSourceKind === 'system' ? 'system' : 'tab';
 
     const notifyEnded = () => opts?.onEnded?.();
     for (const track of stream.getTracks()) {
@@ -58,6 +87,8 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
     return {
       stream,
       sourceKind,
+      label,
+      displaySurface,
       stop: () => {
         for (const track of stream.getTracks()) {
           track.removeEventListener('ended', notifyEnded);

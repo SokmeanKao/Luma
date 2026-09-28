@@ -3,6 +3,8 @@ export type SourceKind = 'tab' | 'system';
 export interface CaptureStartResult {
   stream: MediaStream;
   sourceKind: SourceKind;
+  label: string;
+  displaySurface?: string;
   stop: () => void;
 }
 

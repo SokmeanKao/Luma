@@ -28,6 +28,8 @@ export class GeminiLiveProvider {
   private segmentSeq = 0;
   private pendingPartialId: string | null = null;
   private connectStartedAt = 0;
+  private lastInputText?: string;
+  private lastInputLanguage?: string;
 
   on(event: string, handler: Handler): void {
     const list = this.handlers.get(event) ?? [];
@@ -91,13 +93,23 @@ export class GeminiLiveProvider {
       }, 15000);
 
       ws.onopen = () => {
-        // Setup is locked in the ephemeral token (liveConnectConstraints).
-        // Send a minimal setup referencing the model for Constrained sessions.
         const model = cred.model.startsWith('models/') ? cred.model : `models/${cred.model}`;
+        const target = cred.targetLanguageCode || 'en';
+        const echo = Boolean(cred.echoTargetLanguage);
+        // Live Translate setup (docs). Audio output is discarded client-side; transcripts are used.
         ws.send(
           JSON.stringify({
             setup: {
               model,
+              generationConfig: {
+                responseModalities: ['AUDIO'],
+                inputAudioTranscription: {},
+                outputAudioTranscription: {},
+                translationConfig: {
+                  targetLanguageCode: target,
+                  echoTargetLanguage: echo,
+                },
+              },
             },
           }),
         );
@@ -200,6 +212,10 @@ export class GeminiLiveProvider {
     }
 
     const input = content.inputTranscription;
+    if (input?.text) {
+      this.lastInputText = input.text;
+      if (input.languageCode) this.lastInputLanguage = input.languageCode;
+    }
     const output = content.outputTranscription;
     if (output?.text) {
       const finished = Boolean(output.finished);
@@ -213,8 +229,8 @@ export class GeminiLiveProvider {
         sessionId: this.sessionId,
         segmentId,
         revision: finished ? 2 : 1,
-        sourceLanguage: input?.languageCode,
-        originalText: input?.text,
+        sourceLanguage: this.lastInputLanguage ?? input?.languageCode,
+        originalText: this.lastInputText ?? input?.text,
         translatedText: output.text,
         final: finished,
         captureTimestamp: Date.now(),

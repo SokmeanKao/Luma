@@ -57,6 +57,9 @@ export interface TemporaryCredential {
   model: string;
   apiVersion: string;
   websocketUrl: string;
+  targetLanguageCode?: string;
+  echoTargetLanguage?: boolean;
+  setupLocked?: boolean;
 }
 
 export type ProviderEventMap = {

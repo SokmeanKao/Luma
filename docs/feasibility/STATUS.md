@@ -1,18 +1,35 @@
-# Feasibility gates
+# Feasibility checklist (web real app)
 
-| Gate | Status | Notes |
+Updated after switching the default UI to the live capture→Gemini flow.
+
+| Gate / item | Status | Notes |
 |---|---|---|
-| F-01 Translated text | pending verification | Live test wired (capture→PCM→Gemini→output transcripts). **Not marked pass** until English text from Korean audio is recorded in `F01_LIVE_TRANSLATE_EVIDENCE.md`. |
-| F-02 Source-language filtering | unverified | `echoTargetLanguage=false` ≠ Korean-only. Live test labeled accordingly; product Live stays off. |
-| F-03 Ephemeral tokens | implementation ready | v1beta constrained mint; requires `FREE_TIER_ELIGIBILITY_CONFIRMED=true`. Token success ≠ translation success. |
-| F-04 Web capture | pending verification | Manual Chrome/Edge matrix still required (`F04_CAPTURE_EVIDENCE.md`). |
-| F-05 Windows | pending | Electron stub. |
-| F-06 Quota | pending | No live quota numbers claimed. |
+| Native Select audio source | implemented | `getDisplayMedia` from user click; no simulated YouTube card |
+| Mic never requested | implemented | display-media only |
+| Video not sent to Gemini | implemented | audio PCM path only |
+| Temporary token via Go | implemented | v1beta constrained mint |
+| English subtitles from Korean | **pending manual** | Run YouTube Korean sample; record in F01 |
+| Language filter | **unverified** | Suppresses non-`ko` when `languageCode` present; not proven E2E |
+| F-04 Chrome/Edge capture matrix | **pending** | Fill F04_CAPTURE_EVIDENCE.md |
+| F-05 Electron | pending | After web verification |
+| Demo | explicit only | “Open Dev demo” — never silent fallback |
 
-## Modes
+## Automated
 
-| Mode | Behavior |
+| Check | Result |
 |---|---|
-| Demo | Mock samples only |
-| Capture test | Real capture, no Gemini |
-| Live test | Dev-only live path; no demo fallback on failure |
+| translation tests | 16 pass |
+| audio tests | 8 pass |
+| Go API tests | pass |
+| web typecheck/build | pass (Next 16.3.6) |
+
+## Manual (operator)
+
+| Scenario | Result |
+|---|---|
+| Korean YouTube → English subtitles | pending |
+| Other tab exclusion | pending |
+| Pause/Resume/Stop | pending |
+| Cancel / no-audio / source close | pending |
+| English-only filtering | pending |
+| Teams meeting | pending |

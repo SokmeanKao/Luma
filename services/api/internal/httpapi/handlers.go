@@ -159,7 +159,7 @@ func (s *Server) handleLiveToken(w http.ResponseWriter, r *http.Request) {
 
 	tokenName, expiresAt, err := s.mintEphemeralToken(ctx)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "PROVIDER_UNAVAILABLE", "Upstream token mint failed")
+		writeErr(w, http.StatusBadGateway, "PROVIDER_UNAVAILABLE", "Upstream token mint failed: "+err.Error())
 		return
 	}
 
@@ -178,67 +178,72 @@ func (s *Server) handleLiveToken(w http.ResponseWriter, r *http.Request) {
 		WebsocketURL:        ws,
 		TargetLanguageCode:  s.cfg.TargetLanguageCode,
 		EchoTargetLanguage:  false,
-		SetupLocked:         true,
+		SetupLocked:         false,
 	})
 }
 
 func (s *Server) mintEphemeralToken(ctx context.Context) (string, time.Time, error) {
 	expire := time.Now().Add(30 * time.Minute)
 	newSessionExpire := time.Now().Add(2 * time.Minute)
-	modelPath := s.cfg.GeminiModel
-	if !strings.HasPrefix(modelPath, "models/") {
-		modelPath = "models/" + modelPath
-	}
 
-	// Lock Live Translation config server-side (docs: liveConnectConstraints).
-	// echoTargetLanguage=false: stay silent when input is already English — NOT a Korean-only filter.
+	// Minimal AuthToken create body. Advanced constraint field names are rejected by
+	// the current auth_tokens schema in this project; client sends Live Translate setup.
 	payload := map[string]any{
 		"uses":                 1,
 		"expireTime":           expire.UTC().Format(time.RFC3339),
 		"newSessionExpireTime": newSessionExpire.UTC().Format(time.RFC3339),
-		"liveConnectConstraints": map[string]any{
-			"model": modelPath,
-			"config": map[string]any{
-				"responseModalities":       []string{"AUDIO"},
-				"inputAudioTranscription":  map[string]any{},
-				"outputAudioTranscription": map[string]any{},
-				"translationConfig": map[string]any{
-					"targetLanguageCode": s.cfg.TargetLanguageCode,
-					"echoTargetLanguage": false,
-				},
-			},
-		},
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 
-	url := "https://generativelanguage.googleapis.com/v1beta/auth_tokens"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		return "", time.Time{}, err
+	// Prefer v1beta (Live Translate ephemeral docs); fall back to v1alpha if needed.
+	endpoints := []string{
+		"https://generativelanguage.googleapis.com/v1beta/auth_tokens",
+		"https://generativelanguage.googleapis.com/v1alpha/auth_tokens",
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", s.cfg.GeminiAPIKey)
 
-	res, err := s.client.Do(req)
-	if err != nil {
-		return "", time.Time{}, err
+	var lastErr error
+	for _, endpoint := range endpoints {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-goog-api-key", s.cfg.GeminiAPIKey)
+
+		res, err := s.client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		resBody, _ := io.ReadAll(io.LimitReader(res.Body, 64*1024))
+		_ = res.Body.Close()
+		if res.StatusCode < 200 || res.StatusCode >= 300 {
+			snippet := strings.TrimSpace(string(resBody))
+			if len(snippet) > 160 {
+				snippet = snippet[:160] + "…"
+			}
+			snippet = strings.ReplaceAll(snippet, s.cfg.GeminiAPIKey, "[redacted]")
+			lastErr = fmt.Errorf("%s → HTTP %d %s", endpoint, res.StatusCode, snippet)
+			continue
+		}
+		var parsed googleAuthTokenResponse
+		if err := json.Unmarshal(resBody, &parsed); err != nil {
+			lastErr = err
+			continue
+		}
+		if parsed.Name == "" {
+			lastErr = errors.New("empty token name")
+			continue
+		}
+		return parsed.Name, expire, nil
 	}
-	defer res.Body.Close()
-	resBody, _ := io.ReadAll(io.LimitReader(res.Body, 64*1024))
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return "", time.Time{}, fmt.Errorf("auth_tokens status %d", res.StatusCode)
+	if lastErr == nil {
+		lastErr = errors.New("token mint failed")
 	}
-	var parsed googleAuthTokenResponse
-	if err := json.Unmarshal(resBody, &parsed); err != nil {
-		return "", time.Time{}, err
-	}
-	if parsed.Name == "" {
-		return "", time.Time{}, errors.New("empty token name")
-	}
-	return parsed.Name, expire, nil
+	return "", time.Time{}, lastErr
 }
 
 func (s *Server) withAPI(next http.HandlerFunc) http.HandlerFunc {
