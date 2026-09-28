@@ -1,0 +1,11 @@
+{
+  "name": "@luma/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "echo no-tests",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  }
+}

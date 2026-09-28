@@ -1,23 +1,41 @@
-# Luma — AI implementation handoff
+# Luma
 
-Prepared 28 September 2026. This bundle contains requirements, complete HTML/CSS/JavaScript mockup source, architecture guidance, an agent prompt, and official reference links. It is **not a completed Next.js/Go/Electron application**.
+Personal live audio translation companion (Korean → English initially). Web MVP with explicit **demo mode**, shared packages, and a Go token-service stub.
 
-## Start here
+This repository still includes the handoff docs and HTML mockup under `docs/` and `design/`.
 
-1. Read `docs/REQUIREMENTS.md` as the product specification.
-2. Open `design/Luma_Translation_Mockup.html` in a browser. Use Start demo, Pause, Stop, source selection, Web/Windows preview, font size, and transcript controls.
-3. Read `docs/IMPLEMENTATION.md` and `docs/SOURCES.md`.
-4. Give `AGENT_PROMPT.md` and this entire folder to the coding agent in the intended repository.
-5. Record feasibility findings before connecting real audio.
+## Workspace layout
 
-## Included files
-
-| File | Purpose |
+| Path | Responsibility |
 |---|---|
-| docs/REQUIREMENTS.md | Requirements v1.2 and acceptance checks |
-| docs/IMPLEMENTATION.md | Proposed structure, contracts, phases, tests, and risks |
-| docs/SOURCES.md | Official implementation references and what to verify |
-| design/Luma_Translation_Mockup.html | Responsive, interactive UI source with Maven Pro |
-| AGENT_PROMPT.md | Ready-to-use implementation instructions |
+| `apps/web` | Next.js App Router UI |
+| `packages/ui` | Shared React controls and styles |
+| `packages/translation` | Session state, mock provider, transcript assembly |
+| `packages/audio` | Capture/encoder interfaces (no microphone) |
+| `services/api` | Go health / capabilities / live-token stub |
+| `docs/feasibility/STATUS.md` | Per-gate feasibility status |
 
-The HTML fetches Maven Pro from Google Fonts when online; fallback fonts are used offline. Font binaries are not bundled. Production must self-host licensed fonts. The mockup captures no audio and uses no Gemini connection. No API keys or meeting recordings are included.
+## Development (PowerShell)
+
+```powershell
+cd C:\Dev\Luma\.worktrees\luma-foundation
+pnpm install
+pnpm dev
+```
+
+Go API (separate terminal):
+
+```powershell
+cd C:\Dev\Luma\.worktrees\luma-foundation\services\api
+go test ./...
+go run ./cmd/server
+```
+
+Demo mode is the default (`NEXT_PUBLIC_LUMA_MODE=demo`). Do not treat demo subtitles as live Gemini evidence.
+
+## Docs
+
+1. `docs/REQUIREMENTS.md` — product specification  
+2. `design/Luma_Translation_Mockup.html` — visual reference  
+3. `docs/IMPLEMENTATION.md` / `docs/SOURCES.md` — architecture and upstream links  
+4. `docs/superpowers/plans/2026-09-28-luma-foundation.md` — foundation plan  
