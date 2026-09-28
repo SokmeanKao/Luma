@@ -10,7 +10,14 @@ importers:
 
   apps/web: {}
 
-  packages/audio: {}
+  packages/audio:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7
 
   packages/translation:
     devDependencies:
