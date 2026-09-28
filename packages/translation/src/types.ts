@@ -64,10 +64,22 @@ export interface TemporaryCredential {
 
 export type ProviderEventMap = {
   transcript: TranscriptUpdate;
+  audio: TranslatedAudioChunk;
+  inputLanguage: { languageCode: string; generationId: number; sessionId: string };
   error: ProviderError;
   usage: { note: string };
-  interrupted: { at: number };
+  interrupted: { at: number; generationId?: number; sessionId?: string };
 };
+
+/** Provider-emitted translated speech chunk (PCM). sampleRate is filled after MIME parse. */
+export interface TranslatedAudioChunk {
+  sessionId: string;
+  generationId: number;
+  mimeType: string;
+  pcm: Uint8Array;
+  sampleRate: number;
+  detectedSourceLanguage?: string;
+}
 
 export interface TranslationProvider {
   connect(config: SessionStartConfig, temporaryCredential: TemporaryCredential | string): Promise<void>;
@@ -80,5 +92,5 @@ export const SUPPORTED_SOURCE_LANGUAGES = ['ko'] as const;
 /** Expand only when a verified pair is added to the Go languages catalog. */
 export const DEFAULT_LANGUAGE_PAIR = { source: 'ko', target: 'en' } as const;
 
-/** Discard provider-generated audio output for the subtitle MVP (do not play it). */
-export const DISCARD_PROVIDER_AUDIO_OUTPUT = true;
+/** Provider still returns AUDIO modality; clients may choose not to play it (Text only). */
+export const DISCARD_PROVIDER_AUDIO_OUTPUT = false;

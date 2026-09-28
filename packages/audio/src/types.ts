@@ -5,6 +5,16 @@ export interface CaptureStartResult {
   sourceKind: SourceKind;
   label: string;
   displaySurface?: string;
+  /**
+   * True only for verified browser-tab capture with Luma’s own tab excluded.
+   * Voice playback must stay off when false (system/window/unknown → loop risk).
+   */
+  voicePlaybackSafe: boolean;
+  /**
+   * True when the UA suppressed the tab’s local speakers while still capturing audio.
+   * Only then can Luma safely monitor/duck original playback without duplex echo.
+   */
+  localPlaybackSuppressed: boolean;
   stop: () => void;
 }
 

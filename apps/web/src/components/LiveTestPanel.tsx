@@ -340,7 +340,7 @@ export function LiveTestPanel() {
             <em>not</em> a Korean-only allowlist. General Live availability stays disabled until F-02 evidence exists.
           </div>
 
-          {!caps && !capsError ? <p style={{ color: 'var(--muted)' }}>Loading capabilities…</p> : null}
+          {!caps && !capsError ? <p style={{ color: 'var(--muted-foreground)' }}>Loading capabilities…</p> : null}
           {capsError ? (
             <p style={{ color: '#8a2f2f' }}>
               API unreachable ({capsError}). Start Go on 127.0.0.1:8080. No demo fallback.
@@ -362,7 +362,7 @@ export function LiveTestPanel() {
             </div>
           ) : null}
           {caps?.liveTestAllowed ? (
-            <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+            <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
               Model {caps.model} · mint enabled · eligibility flag set (still record F-01 evidence after a real Korean
               sample).
             </p>
@@ -386,7 +386,7 @@ export function LiveTestPanel() {
               {errorText}
             </p>
           ) : null}
-          <p style={{ fontSize: 12, color: 'var(--muted)' }}>{metrics}</p>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{metrics}</p>
           {firstSubtitleMs != null ? (
             <p style={{ fontSize: 12 }}>Measured first-subtitle latency: {firstSubtitleMs} ms</p>
           ) : null}

@@ -13,7 +13,19 @@ type DisplayMediaOpts = MediaStreamConstraints & {
   preferCurrentTab?: boolean;
   selfBrowserSurface?: 'include' | 'exclude';
   systemAudio?: 'include' | 'exclude';
+  controller?: unknown;
 };
+
+function suppressLocalAudioPlaybackSupported(): boolean {
+  try {
+    const supported = navigator.mediaDevices?.getSupportedConstraints?.() as
+      | Record<string, boolean>
+      | undefined;
+    return Boolean(supported?.suppressLocalAudioPlayback);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Browser tab/window capture via getDisplayMedia.
@@ -30,14 +42,21 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
       throw new Error('getDisplayMedia is not available in this browser');
     }
 
+    const wantSuppress = suppressLocalAudioPlaybackSupported();
+    const audioConstraints: Record<string, unknown> = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    };
+    if (wantSuppress) {
+      // When true, the tab’s speakers are muted for the user while capture continues —
+      // required for Luma to monitor/duck original audio without double playback.
+      audioConstraints.suppressLocalAudioPlayback = true;
+    }
+
     const constraints: DisplayMediaOpts = {
       video: true,
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-      // Prefer excluding this surface and system audio when the UA supports it.
+      audio: audioConstraints as MediaTrackConstraints,
       selfBrowserSurface: 'exclude',
       systemAudio: 'exclude',
       preferCurrentTab: false,
@@ -62,9 +81,12 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
 
     const audio = audioTracks[0]!;
     const video = stream.getVideoTracks()[0];
-    const displaySurface =
-      (video?.getSettings() as { displaySurface?: string } | undefined)?.displaySurface ??
-      (audio.getSettings() as { displaySurface?: string }).displaySurface;
+    const settings = audio.getSettings() as MediaTrackSettings & {
+      suppressLocalAudioPlayback?: boolean;
+      displaySurface?: string;
+    };
+    const videoSettings = video?.getSettings() as { displaySurface?: string } | undefined;
+    const displaySurface = videoSettings?.displaySurface ?? settings.displaySurface;
     const label =
       audio.label ||
       video?.label ||
@@ -79,6 +101,10 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
     const sourceKind: SourceKind =
       displaySurface === 'monitor' || opts?.preferredSourceKind === 'system' ? 'system' : 'tab';
 
+    const voicePlaybackSafe = displaySurface === 'browser';
+    const localPlaybackSuppressed =
+      voicePlaybackSafe && settings.suppressLocalAudioPlayback === true;
+
     const notifyEnded = () => opts?.onEnded?.();
     for (const track of stream.getTracks()) {
       track.addEventListener('ended', notifyEnded);
@@ -89,6 +115,8 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
       sourceKind,
       label,
       displaySurface,
+      voicePlaybackSafe,
+      localPlaybackSuppressed,
       stop: () => {
         for (const track of stream.getTracks()) {
           track.removeEventListener('ended', notifyEnded);

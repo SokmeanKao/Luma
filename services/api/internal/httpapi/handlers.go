@@ -35,6 +35,7 @@ type healthResponse struct {
 type capabilitiesResponse struct {
 	Languages                    []languages.Language     `json:"languages"`
 	SupportedPairs               []languages.VerifiedPair `json:"supportedPairs"`
+	AllDistinctPairsAllowed      bool                     `json:"allDistinctPairsAllowed"`
 	DefaultSourceLanguage        string                   `json:"defaultSourceLanguage"`
 	DefaultTargetLanguage        string                   `json:"defaultTargetLanguage"`
 	SourceLanguages              []string                 `json:"sourceLanguages"`
@@ -85,7 +86,21 @@ func NewServer(cfg config.Config) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && s.originAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "600")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		s.mux.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -107,9 +122,17 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	missing := s.missingEligibility()
 	mintOK := s.cfg.EnableLiveTokenMint && s.cfg.GeminiAPIKey != ""
 	defSrc, defTgt := languages.DefaultPair()
+	// Keep the payload small: the UI expands all distinct pairs from `languages`
+	// when allDistinctPairsAllowed is true (avoid shipping ~5k pair rows).
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
-		Languages:                    languages.AllLanguages(),
-		SupportedPairs:               languages.VerifiedPairs(),
+		Languages: languages.AllLanguages(),
+		SupportedPairs: []languages.VerifiedPair{{
+			Source:       defSrc,
+			Target:       defTgt,
+			FilterStatus: "unverified",
+			Notes:        "Default product pair. Other Live Translate languages are selectable; filter E2E still pending.",
+		}},
+		AllDistinctPairsAllowed:      true,
 		DefaultSourceLanguage:        defSrc,
 		DefaultTargetLanguage:        defTgt,
 		SourceLanguages:              languages.SourceCodes(),
@@ -122,7 +145,7 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		LiveTestAllowed:              mintOK && s.cfg.FreeTierEligibilityConfirmed,
 		MissingEligibilityEvidence:   missing,
 		LanguageFilterStatus:         languages.PairFilterStatus(defSrc, defTgt),
-		PairVerificationNote:         "Dropdown options come only from verifiedPairs. Provider translation support alone does not add a pair; record real-audio evidence before expanding the catalog.",
+		PairVerificationNote:         "Any distinct pair from the languages list is accepted for minting. Source-language filter proof is still pending per pair.",
 	})
 }
 
@@ -283,15 +306,22 @@ func (s *Server) withAPI(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *Server) originAllowed(origin string) bool {
+	for _, allowed := range s.cfg.AllowedOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) checkOrigin(r *http.Request) error {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return nil
 	}
-	for _, allowed := range s.cfg.AllowedOrigins {
-		if origin == allowed {
-			return nil
-		}
+	if s.originAllowed(origin) {
+		return nil
 	}
 	return errors.New("origin not allowed")
 }

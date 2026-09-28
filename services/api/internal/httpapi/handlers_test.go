@@ -52,11 +52,46 @@ func TestCapabilities_ReportsMissingEligibility(t *testing.T) {
 	if body.LanguageFilterStatus != "unverified" {
 		t.Fatalf("filter=%s", body.LanguageFilterStatus)
 	}
-	if len(body.SupportedPairs) == 0 || body.SupportedPairs[0].Source != "ko" {
-		t.Fatalf("expected verified ko→en pair, got %#v", body.SupportedPairs)
-	}
 	if body.DefaultSourceLanguage != "ko" || body.DefaultTargetLanguage != "en" {
 		t.Fatalf("defaults=%s→%s", body.DefaultSourceLanguage, body.DefaultTargetLanguage)
+	}
+	if !body.AllDistinctPairsAllowed {
+		t.Fatal("expected allDistinctPairsAllowed so UI can expand pairs from languages")
+	}
+	if len(body.Languages) < 10 {
+		t.Fatalf("expected many languages, got %d", len(body.Languages))
+	}
+	if len(body.SupportedPairs) == 0 {
+		t.Fatal("expected at least the default pair in supportedPairs")
+	}
+}
+
+func TestCapabilities_SetsCORSForAllowedOrigin(t *testing.T) {
+	srv := testServer("k", true, true)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d", rr.Code)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
+		t.Fatalf("ACAO=%q", got)
+	}
+}
+
+func TestCapabilities_PreflightOPTIONS(t *testing.T) {
+	srv := testServer("k", true, true)
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/live-token", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status=%d", rr.Code)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
+		t.Fatalf("ACAO=%q", got)
 	}
 }
 
@@ -73,14 +108,14 @@ func TestLiveToken_RejectsIdenticalLanguages(t *testing.T) {
 }
 
 func TestLiveToken_InvalidLanguage(t *testing.T) {
-	srv := testServer("", false, false)
-	payload := []byte(`{"sourceLanguage":"fr","targetLanguage":"en"}`)
+	srv := testServer("k", true, true)
+	payload := []byte(`{"sourceLanguage":"xx","targetLanguage":"en"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/live-token", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d", rr.Code)
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

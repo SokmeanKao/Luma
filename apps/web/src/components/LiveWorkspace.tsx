@@ -5,28 +5,51 @@ import {
   Brand,
   PrivacyLabel,
   SessionControls,
-  SourceBar,
   StatusLine,
-  TranscriptPanel,
+  DualTranscriptPanel,
   type TranscriptEntryView,
   type TranscriptItem,
 } from '@luma/ui';
 import {
   BrowserCaptureAdapter,
-  BoundedPcmChunker,
   CaptureCancelledError,
   NoAudioTrackError,
   createActivityMeter,
+  createOriginalAudioMonitor,
+  createTranslatedAudioPlayer,
+  parseProviderPcmMime,
+  pcm16leHasSignal,
   type ActivityMeterHandle,
+  type OriginalAudioMonitor,
+  type TranslatedAudioPlayer,
 } from '@luma/audio';
 import {
   GeminiLiveProvider,
   ProviderError,
   createSessionController,
+  createTranslatedAudioOutputGate,
+  groupTranscriptParagraphs,
   type SessionState,
   type TranscriptUpdate,
+  type TranslatedAudioChunk,
+  type TranslatedAudioOutputGate,
 } from '@luma/translation';
 import { fetchCapabilities, fetchLiveToken, type Capabilities } from '../lib/api';
+import { effectivePairs } from '../lib/language-catalog';
+import { AudioSettingsDialog } from './AudioSettingsDialog';
+import { Alert, AlertAction, AlertDescription, AlertTitle } from './ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
+import { Button } from './ui/button';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import {
   LanguagePairControls,
   languageName,
@@ -56,13 +79,13 @@ function statusCopy(
     case 'paused':
       return 'Paused';
     case 'reconnecting':
-      return 'Connecting';
+      return 'Reconnecting';
     case 'stopped':
       return hasSource
         ? pairOk
           ? 'Audio ready — not translating'
           : 'Choose a supported language pair'
-        : 'Choose languages, then an audio source';
+        : 'Choose languages and an audio source';
     case 'quota_exhausted':
       return 'Quota exhausted';
     case 'error':
@@ -70,14 +93,42 @@ function statusCopy(
     default:
       if (!pairOk) return 'Choose a supported language pair';
       if (hasSource) return 'Audio ready — not translating';
-      return 'Choose languages, then an audio source';
+      return 'Choose languages and an audio source';
   }
 }
 
 type ErrorAction = 'choose-source' | 'retry' | null;
+type OutputMode = 'text' | 'text-voice';
+
+type VoiceDiag = {
+  received: number;
+  released: number;
+  discarded: number;
+  queued: number;
+  played: number;
+  silentPcm: number;
+  badMime: number;
+  ctx: string;
+  gate: string;
+  lastDiscard?: string;
+};
+
+function emptyVoiceDiag(): VoiceDiag {
+  return {
+    received: 0,
+    released: 0,
+    discarded: 0,
+    queued: 0,
+    played: 0,
+    silentPcm: 0,
+    badMime: 0,
+    ctx: 'none',
+    gate: 'pending',
+  };
+}
 
 /**
- * Primary Luma web app: native tab picker → PCM → Gemini → English subtitles.
+ * Primary Luma web app: native tab picker → PCM → Gemini → English subtitles (+ optional voice).
  * Never falls back to demo samples on failure.
  */
 export function LiveWorkspace() {
@@ -86,31 +137,39 @@ export function LiveWorkspace() {
   const [state, setState] = useState<SessionState>('idle');
   const [entries, setEntries] = useState<TranscriptUpdate[]>([]);
   const [seconds, setSeconds] = useState(0);
-  const [level, setLevel] = useState(0);
+  const [, setLevel] = useState(0);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [errorAction, setErrorAction] = useState<ErrorAction>(null);
   const [sourceLabel, setSourceLabel] = useState('No source selected');
   const [sourceDetail, setSourceDetail] = useState('Browser tab · Share tab audio required');
   const [hasSource, setHasSource] = useState(false);
-  const [showOriginal, setShowOriginal] = useState(false);
-  const [fontSize, setFontSize] = useState(20);
-  const [settingsOpen, setSettingsOpen] = useState(true);
-  const [metrics, setMetrics] = useState('');
-  const [firstSubtitleMs, setFirstSubtitleMs] = useState<number | null>(null);
+  const [voicePlaybackSafe, setVoicePlaybackSafe] = useState(false);
+  const [canDuckOriginal, setCanDuckOriginal] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(true);
+  const [fontSize, setFontSize] = useState(18);
+  const [, setMetrics] = useState('');
+  const [, setFirstSubtitleMs] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
   const [sourceLang, setSourceLang] = useState('ko');
   const [targetLang, setTargetLang] = useState('en');
   const [historyItems, setHistoryItems] = useState<TranscriptItem[]>([]);
   const [pendingPair, setPendingPair] = useState<LanguagePair | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [outputMode, setOutputMode] = useState<OutputMode>('text');
+  const [voiceVolume, setVoiceVolume] = useState(0.85);
+  const [voiceMuted, setVoiceMuted] = useState(false);
+  const [originalVolume, setOriginalVolume] = useState(1);
+  const [duckOriginal, setDuckOriginal] = useState(true);
+  const [duckLevel, setDuckLevel] = useState(0.2);
+  const [voiceGapNote, setVoiceGapNote] = useState<string | null>(null);
+  const [, setVoiceDiag] = useState<VoiceDiag>(() => emptyVoiceDiag());
 
   const sessionRef = useRef<ReturnType<typeof createSessionController> | null>(null);
   const providerRef = useRef<GeminiLiveProvider | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const stopCaptureRef = useRef<(() => void) | null>(null);
   const meterRef = useRef<ActivityMeterHandle | null>(null);
-  const chunkerRef = useRef<BoundedPcmChunker | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const monitorRef = useRef<OriginalAudioMonitor | null>(null);
   const rafRef = useRef<number | null>(null);
   const sessionStartedAt = useRef(0);
   const firstSeen = useRef(false);
@@ -121,6 +180,49 @@ export function LiveWorkspace() {
   const reconnectingRef = useRef(false);
   const sourceLangRef = useRef(sourceLang);
   const targetLangRef = useRef(targetLang);
+  const voiceSafeRef = useRef(false);
+  const canDuckRef = useRef(false);
+  const outputModeRef = useRef<OutputMode>('text');
+  const playerRef = useRef<TranslatedAudioPlayer | null>(null);
+  const gateRef = useRef<TranslatedAudioOutputGate | null>(null);
+  const voiceDiagRef = useRef<VoiceDiag>(emptyVoiceDiag());
+  const duckOriginalRef = useRef(true);
+  const voiceMutedRef = useRef(false);
+  const translationPlayingRef = useRef(false);
+
+  function syncMonitorDuckFromPlayback() {
+    monitorRef.current?.setTranslationPlaying(
+      translationPlayingRef.current && !voiceMutedRef.current,
+    );
+  }
+
+  function bumpVoiceDiag(patch: Partial<VoiceDiag> & { lastDiscard?: string }) {
+    voiceDiagRef.current = { ...voiceDiagRef.current, ...patch };
+    setVoiceDiag({ ...voiceDiagRef.current });
+  }
+
+  function noteVoiceDiscard(reason: string) {
+    voiceDiagRef.current.discarded += 1;
+    voiceDiagRef.current.lastDiscard = reason;
+    bumpVoiceDiag({
+      discarded: voiceDiagRef.current.discarded,
+      lastDiscard: reason,
+      gate: gateRef.current?.getDecision() ?? 'pending',
+      ctx: playerRef.current?.getContextState() ?? 'none',
+      queued: playerRef.current?.getQueuedCount() ?? 0,
+      played: playerRef.current?.getPlayedCount() ?? 0,
+    });
+    if (typeof console !== 'undefined') {
+      console.info('[luma:voice]', {
+        received: voiceDiagRef.current.received,
+        released: voiceDiagRef.current.released,
+        discarded: voiceDiagRef.current.discarded,
+        reason,
+        gate: gateRef.current?.getDecision(),
+        ctx: playerRef.current?.getContextState(),
+      });
+    }
+  }
 
   useEffect(() => {
     secondsRef.current = seconds;
@@ -129,14 +231,111 @@ export function LiveWorkspace() {
   useEffect(() => {
     sourceLangRef.current = sourceLang;
     targetLangRef.current = targetLang;
+    gateRef.current?.setSelectedSource(sourceLang);
   }, [sourceLang, targetLang]);
+
+  useEffect(() => {
+    outputModeRef.current = outputMode;
+    const wantVoice = outputMode === 'text-voice' && voiceSafeRef.current;
+    playerRef.current?.setEnabled(wantVoice);
+  }, [outputMode]);
+
+  useEffect(() => {
+    playerRef.current?.setVolume(voiceVolume);
+  }, [voiceVolume]);
+
+  useEffect(() => {
+    voiceMutedRef.current = voiceMuted;
+    playerRef.current?.setMuted(voiceMuted);
+    // Muted translation should not leave the original ducked underneath silence.
+    syncMonitorDuckFromPlayback();
+  }, [voiceMuted]);
+
+  useEffect(() => {
+    monitorRef.current?.setVolume(originalVolume);
+  }, [originalVolume]);
+
+  useEffect(() => {
+    duckOriginalRef.current = duckOriginal;
+    monitorRef.current?.setDuckEnabled(duckOriginal && canDuckOriginal);
+  }, [duckOriginal, canDuckOriginal]);
+
+  useEffect(() => {
+    monitorRef.current?.setDuckRatio(duckLevel);
+  }, [duckLevel]);
+
+  useEffect(() => {
+    const player = createTranslatedAudioPlayer({
+      maxQueuedMs: 4000,
+      onGap: (reason) => {
+        setVoiceGapNote(
+          reason === 'playback_queue_overflow'
+            ? 'Translated voice skipped ahead to stay in sync.'
+            : null,
+        );
+        noteVoiceDiscard(reason);
+      },
+      onPlayingChange: (playing) => {
+        translationPlayingRef.current = playing;
+        syncMonitorDuckFromPlayback();
+      },
+    });
+    playerRef.current = player;
+    const gate = createTranslatedAudioOutputGate({
+      pendingTimeoutMs: 2000,
+      maxPendingMs: 3000,
+      onPlay: (chunk) => {
+        if (outputModeRef.current !== 'text-voice' || !voiceSafeRef.current) {
+          noteVoiceDiscard('voice_mode_off');
+          return;
+        }
+        voiceDiagRef.current.released += 1;
+        player.enqueue(chunk);
+        bumpVoiceDiag({
+          released: voiceDiagRef.current.released,
+          queued: player.getQueuedCount(),
+          played: player.getPlayedCount(),
+          ctx: player.getContextState(),
+          gate: gateRef.current?.getDecision() ?? 'play',
+        });
+      },
+      onDiscard: (reason) => noteVoiceDiscard(reason),
+    });
+    gate.setSelectedSource(sourceLangRef.current);
+    gateRef.current = gate;
+    return () => {
+      void player.close();
+      gate.reset();
+      playerRef.current = null;
+      gateRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function flushTranslatedVoice(reason: string, opts?: { resetGate?: boolean }) {
+    playerRef.current?.flush(reason);
+    if (opts?.resetGate !== false) {
+      gateRef.current?.noteInterrupted();
+    }
+  }
+
+  function syncVoiceEnabled() {
+    const want = outputModeRef.current === 'text-voice' && voiceSafeRef.current;
+    playerRef.current?.setEnabled(want);
+    bumpVoiceDiag({
+      ctx: playerRef.current?.getContextState() ?? 'none',
+      gate: gateRef.current?.getDecision() ?? 'pending',
+      queued: playerRef.current?.getQueuedCount() ?? 0,
+      played: playerRef.current?.getPlayedCount() ?? 0,
+    });
+  }
 
   useEffect(() => {
     void fetchCapabilities()
       .then((c) => {
         setCaps(c);
         const stored = loadStoredPair();
-        const pairs = c.supportedPairs ?? [];
+        const pairs = effectivePairs(c.supportedPairs, c.languages, c.allDistinctPairsAllowed);
         let next: LanguagePair = {
           source: c.defaultSourceLanguage || 'ko',
           target: c.defaultTargetLanguage || 'en',
@@ -183,18 +382,8 @@ export function LiveWorkspace() {
   }
 
   function stopPcmGraph() {
-    try {
-      processorRef.current?.disconnect();
-    } catch {
-      /* ignore */
-    }
-    processorRef.current = null;
-    if (audioCtxRef.current) {
-      void audioCtxRef.current.close();
-      audioCtxRef.current = null;
-    }
-    chunkerRef.current?.reset();
-    chunkerRef.current = null;
+    monitorRef.current?.setTranslationPlaying(false);
+    monitorRef.current?.detach();
   }
 
   function releaseCapture() {
@@ -204,11 +393,21 @@ export function LiveWorkspace() {
     stopCaptureRef.current = null;
     streamRef.current = null;
     setHasSource(false);
+    setVoicePlaybackSafe(false);
+    setCanDuckOriginal(false);
+    voiceSafeRef.current = false;
+    canDuckRef.current = false;
+    if (outputModeRef.current === 'text-voice') {
+      setOutputMode('text');
+      outputModeRef.current = 'text';
+    }
+    syncVoiceEnabled();
     setSourceLabel('No source selected');
     setSourceDetail('Browser tab · Share tab audio required');
   }
 
   async function closeProviderOnly() {
+    flushTranslatedVoice('provider_close');
     providerRef.current?.pauseSending();
     await providerRef.current?.close();
     providerRef.current = null;
@@ -240,12 +439,13 @@ export function LiveWorkspace() {
 
   function requestLanguageChange(next: LanguagePair) {
     if (next.source === sourceLang && next.target === targetLang) return;
-    if (!caps || !pairAllowed(caps.supportedPairs, next.source, next.target)) {
-      setErrorText('That language pair is not verified for Luma yet.');
+    const pairs = effectivePairs(caps?.supportedPairs, caps?.languages, caps?.allDistinctPairsAllowed);
+    if (!pairAllowed(pairs, next.source, next.target)) {
+      setErrorText('That language pair is not available.');
       setErrorAction(null);
       return;
     }
-    const targets = targetsForSource(caps.supportedPairs, next.source);
+    const targets = targetsForSource(pairs, next.source);
     if (!targets.includes(next.target)) {
       setErrorText('Target language is not available for the selected source.');
       setErrorAction(null);
@@ -271,16 +471,16 @@ export function LiveWorkspace() {
 
     const oldLabel = `${languageName(caps, sourceLang)} → ${languageName(caps, targetLang)}`;
     const newLabel = `${languageName(caps, next.source)} → ${languageName(caps, next.target)}`;
-    const snapshot: TranscriptItem[] = entries.map((e) => ({
+    const snapshot: TranscriptItem[] = groupTranscriptParagraphs(entries).map((p) => ({
       kind: 'entry' as const,
       entry: {
-        segmentId: `hist-${e.segmentId}-${Date.now()}`,
-        timeLabel: clock(Math.floor(e.captureTimestamp / 1000)),
-        originalText: e.originalText,
-        translatedText: e.translatedText,
+        segmentId: `hist-${p.id}-${Date.now()}`,
+        timeLabel: '',
+        originalText: p.originalText || undefined,
+        translatedText: p.translatedText,
         showOriginal,
         fontSize,
-        final: e.final,
+        final: true,
         sourceLang,
         targetLang,
       },
@@ -353,14 +553,29 @@ export function LiveWorkspace() {
       streamRef.current = result.stream;
       stopCaptureRef.current = result.stop;
       setHasSource(true);
+      setVoicePlaybackSafe(result.voicePlaybackSafe);
+      setCanDuckOriginal(result.localPlaybackSuppressed);
+      voiceSafeRef.current = result.voicePlaybackSafe;
+      canDuckRef.current = result.localPlaybackSuppressed;
+      if (!result.voicePlaybackSafe && outputModeRef.current === 'text-voice') {
+        setOutputMode('text');
+        outputModeRef.current = 'text';
+        flushTranslatedVoice('capture_not_voice_safe');
+      }
+      syncVoiceEnabled();
       setSourceLabel(result.label);
       setSourceDetail(
-        result.sourceKind === 'system'
-          ? 'Screen or window · other apps may be included'
-          : 'Browser tab · Share tab audio',
+        result.voicePlaybackSafe
+          ? result.localPlaybackSuppressed
+            ? 'Browser tab · Share tab audio · original routed through Luma'
+            : 'Browser tab · Share tab audio · browser kept local tab sound'
+          : result.displaySurface === 'monitor'
+            ? 'Entire screen · translated voice disabled (loop risk)'
+            : result.displaySurface === 'window'
+              ? 'Application window · translated voice disabled'
+              : 'Capture scope unknown · translated voice disabled',
       );
       startActivityMeter(result.stream);
-      setSettingsOpen(false);
       setState('idle');
     } catch (err) {
       releaseCapture();
@@ -384,44 +599,27 @@ export function LiveWorkspace() {
 
   function attachPcmPipeline(stream: MediaStream, provider: GeminiLiveProvider) {
     stopPcmGraph();
-    const chunker = new BoundedPcmChunker({
-      maxBufferedMs: 1500,
-      onGap: (droppedMs) => {
-        setMetrics((m) => `${m} · gap ${Math.round(droppedMs)} ms`);
-      },
+    const monitor =
+      monitorRef.current ??
+      createOriginalAudioMonitor({
+        duckRatio: duckLevel,
+        onGap: (droppedMs) => {
+          setMetrics((m) => `${m} · gap ${Math.round(droppedMs)} ms`);
+        },
+      });
+    monitorRef.current = monitor;
+    monitor.setVolume(originalVolume);
+    monitor.setDuckEnabled(duckOriginalRef.current && canDuckRef.current);
+    monitor.setDuckRatio(duckLevel);
+    monitor.attach({
+      stream,
+      // Only monitor when the tab’s own speakers were suppressed — otherwise we’d double the audio.
+      monitor: canDuckRef.current,
+      onSendAudio: (bytes) => provider.sendAudio(bytes),
+      isSending: () => Boolean(sessionRef.current?.isSendingAudio()),
     });
-    chunkerRef.current = chunker;
-
-    const ctx = new AudioContext();
-    audioCtxRef.current = ctx;
-    const sourceNode = ctx.createMediaStreamSource(stream);
-    const processor = ctx.createScriptProcessor(4096, sourceNode.channelCount || 1, 1);
-    processorRef.current = processor;
-    const mute = ctx.createGain();
-    mute.gain.value = 0;
-
-    processor.onaudioprocess = (ev) => {
-      if (!sessionRef.current?.isSendingAudio()) {
-        // Pause: drop newly captured buffers (do not queue for later).
-        return;
-      }
-      const input = ev.inputBuffer;
-      const channels = input.numberOfChannels;
-      const frames = input.length;
-      const interleaved = new Float32Array(frames * channels);
-      for (let c = 0; c < channels; c += 1) {
-        const data = input.getChannelData(c);
-        for (let i = 0; i < frames; i += 1) {
-          interleaved[i * channels + c] = data[i] ?? 0;
-        }
-      }
-      const chunks = chunker.pushFloat(interleaved, channels, input.sampleRate);
-      for (const bytes of chunks) provider.sendAudio(bytes);
-    };
-
-    sourceNode.connect(processor);
-    processor.connect(mute);
-    mute.connect(ctx.destination);
+    syncMonitorDuckFromPlayback();
+    void monitor.unlock();
   }
 
   async function startTranslation() {
@@ -450,9 +648,19 @@ export function LiveWorkspace() {
     setFirstSubtitleMs(null);
     setEntries([]);
     setSeconds(0);
+    setVoiceGapNote(null);
+    voiceDiagRef.current = emptyVoiceDiag();
+    setVoiceDiag(emptyVoiceDiag());
     setMetrics('Requesting temporary credential…');
-    setSettingsOpen(false);
     setState('connecting');
+
+    // Unlock playback AudioContext from the Start click (autoplay policy).
+    try {
+      await playerRef.current?.unlock();
+      bumpVoiceDiag({ ctx: playerRef.current?.getContextState() ?? 'none' });
+    } catch {
+      /* ignore — voice may stay silent until next gesture */
+    }
 
     let token;
     try {
@@ -473,10 +681,66 @@ export function LiveWorkspace() {
     activeSessionIdRef.current = sessionId;
     const provider = new GeminiLiveProvider();
     providerRef.current = provider;
+
+    provider.on('inputLanguage', (payload) => {
+      if (providerRef.current !== provider) return;
+      if (activeSessionIdRef.current !== sessionId) return;
+      const msg = payload as { languageCode?: string; sessionId?: string };
+      if (msg.sessionId && msg.sessionId !== sessionId) return;
+      // Do not compare provider generation to session generation — they are independent counters.
+      gateRef.current?.noteInputLanguage(msg.languageCode);
+      bumpVoiceDiag({ gate: gateRef.current?.getDecision() ?? 'pending' });
+    });
+
+    provider.on('audio', (payload) => {
+      if (providerRef.current !== provider) return;
+      if (activeSessionIdRef.current !== sessionId) return;
+      const chunk = payload as TranslatedAudioChunk;
+      // Provider sessionId must match; stamp session generation like transcripts (provider gen ≠ session gen).
+      if (chunk.sessionId !== sessionId) {
+        noteVoiceDiscard('session_mismatch');
+        return;
+      }
+      voiceDiagRef.current.received += 1;
+      const parsed = parseProviderPcmMime(chunk.mimeType);
+      if (!parsed) {
+        voiceDiagRef.current.badMime += 1;
+        noteVoiceDiscard('bad_mime');
+        return;
+      }
+      if (!pcm16leHasSignal(chunk.pcm)) {
+        voiceDiagRef.current.silentPcm += 1;
+        bumpVoiceDiag({
+          received: voiceDiagRef.current.received,
+          silentPcm: voiceDiagRef.current.silentPcm,
+        });
+        // Still enqueue — leading silence is valid PCM; only track for diagnostics.
+      } else {
+        bumpVoiceDiag({ received: voiceDiagRef.current.received });
+      }
+      gateRef.current?.pushAudio({
+        pcm: chunk.pcm,
+        sampleRate: parsed.sampleRate,
+        mimeType: parsed.mimeType,
+        generationId: activeGenerationRef.current,
+        sessionId,
+      });
+    });
+
+    provider.on('interrupted', () => {
+      if (providerRef.current !== provider) return;
+      if (activeSessionIdRef.current !== sessionId) return;
+      flushTranslatedVoice('provider_interrupted');
+    });
+
     provider.on('transcript', (payload) => {
       if (providerRef.current !== provider) return;
       if (activeSessionIdRef.current !== sessionId) return;
       const update = payload as TranscriptUpdate;
+      if (update.sourceLanguage) {
+        gateRef.current?.noteInputLanguage(update.sourceLanguage);
+        bumpVoiceDiag({ gate: gateRef.current?.getDecision() ?? 'pending' });
+      }
       if (!firstSeen.current && update.translatedText.trim()) {
         firstSeen.current = true;
         const ms = Date.now() - sessionStartedAt.current;
@@ -512,6 +776,7 @@ export function LiveWorkspace() {
         }
         reconnectingRef.current = true;
         setState('reconnecting');
+        flushTranslatedVoice('reconnect_gap');
         setMetrics((m) => `${m} · transcript gap (connection dropped)`);
         setErrorText(null);
         setErrorAction(null);
@@ -550,6 +815,13 @@ export function LiveWorkspace() {
             setErrorText(null);
             setErrorAction(null);
             setMetrics((m) => `${m} · reconnected (gap already marked)`);
+            // Keep session generation for transcript/audio stamping (provider gen is independent).
+            activeGenerationRef.current = session.getGenerationId();
+            gateRef.current?.setSession(activeGenerationRef.current, sessionId);
+            gateRef.current?.setSelectedSource(sourceLangRef.current);
+            playerRef.current?.setSession(activeGenerationRef.current, sessionId);
+            syncVoiceEnabled();
+            void playerRef.current?.unlock();
             if (session.getState() === 'paused') {
               provider.pauseSending();
               setState('paused');
@@ -603,6 +875,12 @@ export function LiveWorkspace() {
         sessionId,
       });
       activeGenerationRef.current = session.getGenerationId();
+      gateRef.current?.setSession(activeGenerationRef.current, sessionId);
+      gateRef.current?.setSelectedSource(sourceLangRef.current);
+      playerRef.current?.setSession(activeGenerationRef.current, sessionId);
+      playerRef.current?.setVolume(voiceVolume);
+      playerRef.current?.setMuted(voiceMuted);
+      syncVoiceEnabled();
       reconnectingRef.current = false;
       attachPcmPipeline(stream, provider);
       translatingRef.current = true;
@@ -630,11 +908,13 @@ export function LiveWorkspace() {
     if (state === 'listening') {
       sessionRef.current?.pause();
       providerRef.current?.pauseSending();
+      flushTranslatedVoice('pause');
       return;
     }
     if (state === 'paused') {
       sessionRef.current?.resume();
       providerRef.current?.resumeSending();
+      // Do not replay flushed speech — only new eligible audio after resume.
       return;
     }
     void startTranslation();
@@ -643,7 +923,30 @@ export function LiveWorkspace() {
   async function onStop() {
     await hardStop(true);
     setState('stopped');
-    setSettingsOpen(true);
+  }
+
+  function setOutputModeSafe(next: OutputMode) {
+    if (next === 'text-voice' && !voicePlaybackSafe) {
+      setErrorText(
+        'Translated voice needs a browser-tab source (not this screen or an app window) so Luma’s playback isn’t recaptured.',
+      );
+      setErrorAction('choose-source');
+      return;
+    }
+    if (next === 'text' && outputModeRef.current === 'text-voice') {
+      // Immediate stop: flush queue + current phrase; keep subtitles and language decision.
+      playerRef.current?.setEnabled(false);
+      flushTranslatedVoice('text_only', { resetGate: false });
+    }
+    outputModeRef.current = next;
+    setOutputMode(next);
+    syncVoiceEnabled();
+    if (next === 'text-voice') {
+      // Enabling voice after Start must also unlock/resume AudioContext from this gesture.
+      void playerRef.current?.unlock().then(() => {
+        bumpVoiceDiag({ ctx: playerRef.current?.getContextState() ?? 'none' });
+      });
+    }
   }
 
   function onErrorAction() {
@@ -660,14 +963,14 @@ export function LiveWorkspace() {
     }
   }
 
-  const viewEntries: TranscriptEntryView[] = entries.map((e) => ({
-    segmentId: e.segmentId,
-    timeLabel: clock(Math.floor(e.captureTimestamp / 1000)),
-    originalText: e.originalText,
-    translatedText: e.translatedText,
+  const viewEntries: TranscriptEntryView[] = groupTranscriptParagraphs(entries).map((p) => ({
+    segmentId: p.id,
+    timeLabel: '',
+    originalText: p.originalText || undefined,
+    translatedText: p.translatedText,
     showOriginal,
     fontSize,
-    final: e.final,
+    final: p.final,
     sourceLang,
     targetLang,
   }));
@@ -684,9 +987,9 @@ export function LiveWorkspace() {
     state === 'reconnecting' ||
     starting;
   const busy = sessionActive;
-  const pairOk = pairAllowed(caps?.supportedPairs, sourceLang, targetLang);
+  const pairs = effectivePairs(caps?.supportedPairs, caps?.languages, caps?.allDistinctPairsAllowed);
+  const pairOk = pairAllowed(pairs, sourceLang, targetLang);
   const canStart = Boolean(hasSource && pairOk && caps?.liveTestAllowed);
-  const showSubtitles = hasSource || sessionActive || entries.length > 0 || historyItems.length > 0;
   const primaryLabel =
     state === 'listening'
       ? 'Pause'
@@ -702,10 +1005,6 @@ export function LiveWorkspace() {
       : !canStart || starting || state === 'connecting' || state === 'reconnecting';
   const sourceLabelName = languageName(caps, sourceLang);
   const targetLabelName = languageName(caps, targetLang);
-  const pairFilter =
-    caps?.supportedPairs?.find((p) => p.source === sourceLang && p.target === targetLang)?.filterStatus ??
-    caps?.languageFilterStatus ??
-    'unverified';
   const stageClass = [
     'stage',
     state === 'listening' ? 'is-listening is-active' : '',
@@ -718,252 +1017,343 @@ export function LiveWorkspace() {
     .join(' ');
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <Brand compact={showSubtitles || hasSource} />
+    <div className="app-shell app-shell--live">
+      <header className="app-header app-header--compact">
+        <Brand compact />
         <PrivacyLabel />
       </header>
 
-      <div className={stageClass}>
-        <section className="setup-panel" aria-label="Translation setup">
-          <h1 className="setup-title">Understand what you’re listening to</h1>
-          <ol className="setup-steps">
-            <li>
-              <span className="setup-step-label">1. Choose languages</span>
-              <LanguagePairControls
-                caps={caps}
-                source={sourceLang}
-                target={targetLang}
-                disabled={starting || state === 'connecting' || state === 'reconnecting'}
-                onRequestChange={requestLanguageChange}
-              />
-              <p className="empty-hint">
-                Confirm the pair before any audio is sent to Google. Last choice is remembered.
-              </p>
-            </li>
-            <li>
-              <span className="setup-step-label">2. Choose audio source</span>
-              <SourceBar
-                hasSource={hasSource}
-                name={sourceLabel}
-                detail={hasSource ? sourceDetail : undefined}
-                busy={busy}
-                onChoose={() => void selectAudioSource()}
-                onChange={() => void selectAudioSource()}
-              />
-              <p className="empty-hint">
-                Select a Teams or YouTube tab and enable “Share tab audio”. You can do this before or
-                after languages.
-              </p>
-            </li>
-            <li>
-              <span className="setup-step-label">3. Start translation</span>
-              <div className="setup-start-row">
-                <StatusLine>{statusCopy(state, hasSource, pairOk)}</StatusLine>
-                <SessionControls
-                  timerLabel={sessionActive || seconds > 0 ? clock(seconds) : undefined}
-                  primaryLabel={primaryLabel}
-                  onPrimary={onPrimary}
-                  onStop={() => void onStop()}
-                  primaryDisabled={primaryBlocked}
-                  stopDisabled={!busy && state !== 'error' && state !== 'quota_exhausted'}
-                />
-              </div>
-              {!canStart && !sessionActive ? (
-                <p className="empty-hint">
-                  {capsError
-                    ? 'Translation service is unreachable — Start stays off until the API responds.'
-                    : !caps
-                      ? 'Loading language options…'
-                      : !pairOk
-                        ? 'Pick a verified language pair to continue.'
-                        : !hasSource
-                          ? 'Audio is not shared yet — Start stays off until a tab is ready.'
-                          : !caps.liveTestAllowed
-                            ? 'Live translation is blocked until free-tier eligibility is confirmed.'
-                            : 'Start is available when languages and audio are ready.'}
-                </p>
-              ) : hasSource && !sessionActive ? (
-                <p className="empty-hint">Audio ready — not translating until you press Start.</p>
-              ) : null}
-            </li>
-          </ol>
-          {caps && !caps.liveTestAllowed ? (
-            <div className="gate-note">
-              Live translation opens after free-tier eligibility is confirmed.
-              <ul>
-                {(caps.missingEligibilityEvidence ?? []).map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
+      <div className={`${stageClass} stage--live`}>
+        <section className="session-toolbar" aria-label="Session controls">
+          <div className="session-toolbar-row">
+            <LanguagePairControls
+              caps={caps}
+              source={sourceLang}
+              target={targetLang}
+              disabled={starting || state === 'connecting' || state === 'reconnecting'}
+              onRequestChange={requestLanguageChange}
+            />
+
+            <div className="session-source" title={hasSource ? sourceLabel : undefined}>
+              {hasSource ? (
+                <>
+                  <div className="session-source-text">
+                    <span className="session-source-name">{sourceLabel}</span>
+                    {sourceDetail ? (
+                      <span className="session-source-detail">{sourceDetail}</span>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    title={busy ? 'Stop translation to change source' : 'Change audio source'}
+                    aria-label={busy ? 'Stop translation to change source' : 'Change audio source'}
+                    onClick={() => void selectAudioSource()}
+                  >
+                    Change
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy}
+                  title={busy ? 'Stop translation to choose a different source' : 'Choose a browser tab or window to translate'}
+                  onClick={() => void selectAudioSource()}
+                >
+                  Choose source
+                </Button>
+              )}
             </div>
-          ) : null}
-          {capsError ? (
-            <div className="error-banner" role="alert">
-              <p>Translation service is unreachable. Start the Go API, then refresh.</p>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => {
-                  setCapsError(null);
-                  void fetchCapabilities()
-                    .then((c) => {
-                      setCaps(c);
-                      const stored = loadStoredPair();
-                      const pairs = c.supportedPairs ?? [];
-                      let next: LanguagePair = {
-                        source: c.defaultSourceLanguage || 'ko',
-                        target: c.defaultTargetLanguage || 'en',
-                      };
-                      if (stored && pairAllowed(pairs, stored.source, stored.target)) {
-                        next = stored;
-                      } else if (!pairAllowed(pairs, next.source, next.target) && pairs[0]) {
-                        next = { source: pairs[0].source, target: pairs[0].target };
-                      }
-                      setSourceLang(next.source);
-                      setTargetLang(next.target);
-                      storePair(next);
-                    })
-                    .catch((e) =>
-                      setCapsError(e instanceof Error ? e.message : 'capabilities failed'),
-                    );
+
+            <div className="session-output">
+              <ToggleGroup
+                type="single"
+                value={outputMode}
+                onValueChange={(next) => {
+                  if (next === 'text' || next === 'text-voice') setOutputModeSafe(next);
                 }}
+                variant="outline"
+                spacing={0}
+                size="sm"
+                aria-label="Translation output"
               >
-                Retry connection
-              </button>
+                <ToggleGroupItem value="text" className="px-2.5">
+                  Text
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="text-voice"
+                  className="px-2.5"
+                  disabled={!voicePlaybackSafe && !hasSource}
+                  title={
+                    voicePlaybackSafe
+                      ? 'Play translated speech with subtitles'
+                      : 'Choose a browser tab (not this screen) to enable voice'
+                  }
+                >
+                  Text + voice
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <AudioSettingsDialog
+                enabled={outputMode === 'text-voice'}
+                voiceVolume={voiceVolume}
+                voiceMuted={voiceMuted}
+                originalVolume={originalVolume}
+                duckOriginal={duckOriginal}
+                duckLevel={duckLevel}
+                canDuckOriginal={canDuckOriginal}
+                onVoiceVolume={setVoiceVolume}
+                onVoiceMuted={setVoiceMuted}
+                onOriginalVolume={setOriginalVolume}
+                onDuckOriginal={setDuckOriginal}
+                onDuckLevel={setDuckLevel}
+              />
             </div>
+          </div>
+
+          <div className="session-toolbar-row session-toolbar-row--actions">
+            <StatusLine>{statusCopy(state, hasSource, pairOk)}</StatusLine>
+            {!voicePlaybackSafe && hasSource ? (
+              <span className="session-note">Voice off for this capture (loop risk)</span>
+            ) : null}
+            {voiceGapNote ? <span className="session-note">{voiceGapNote}</span> : null}
+            <SessionControls
+              timerLabel={sessionActive || seconds > 0 ? clock(seconds) : undefined}
+              primaryLabel={primaryLabel}
+              onPrimary={onPrimary}
+              onStop={() => void onStop()}
+              primaryDisabled={primaryBlocked}
+              stopDisabled={!busy && state !== 'error' && state !== 'quota_exhausted'}
+              stopAction={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void onStop()}
+                  disabled={!busy && state !== 'error' && state !== 'quota_exhausted'}
+                  title={
+                    !busy && state !== 'error' && state !== 'quota_exhausted'
+                      ? 'Nothing to stop yet'
+                      : 'Stop translation and release capture'
+                  }
+                >
+                  Stop
+                </Button>
+              }
+              primaryAction={
+                <Button
+                  type="button"
+                  className="session-primary"
+                  onClick={onPrimary}
+                  disabled={primaryBlocked}
+                  title={
+                    primaryBlocked
+                      ? !hasSource
+                        ? 'Choose an audio source first'
+                        : !pairOk
+                          ? 'Choose a supported language pair'
+                          : 'Connecting…'
+                      : primaryLabel
+                  }
+                >
+                  {primaryLabel}
+                </Button>
+              }
+            />
+          </div>
+
+          {capsError ? (
+            <Alert variant="destructive">
+              <AlertTitle>Translation service unreachable</AlertTitle>
+              <AlertDescription>Start the Go API, then refresh.</AlertDescription>
+              <AlertAction>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setCapsError(null);
+                    void fetchCapabilities()
+                      .then((c) => {
+                        setCaps(c);
+                        const stored = loadStoredPair();
+                        const pairs = effectivePairs(
+                          c.supportedPairs,
+                          c.languages,
+                          c.allDistinctPairsAllowed,
+                        );
+                        let next: LanguagePair = {
+                          source: c.defaultSourceLanguage || 'ko',
+                          target: c.defaultTargetLanguage || 'en',
+                        };
+                        if (stored && pairAllowed(pairs, stored.source, stored.target)) {
+                          next = stored;
+                        } else if (!pairAllowed(pairs, next.source, next.target) && pairs[0]) {
+                          next = { source: pairs[0].source, target: pairs[0].target };
+                        }
+                        setSourceLang(next.source);
+                        setTargetLang(next.target);
+                        storePair(next);
+                      })
+                      .catch((e) =>
+                        setCapsError(e instanceof Error ? e.message : 'capabilities failed'),
+                      );
+                  }}
+                >
+                  Retry connection
+                </Button>
+              </AlertAction>
+            </Alert>
+          ) : null}
+
+          {errorText ? (
+            <Alert variant="destructive">
+              <AlertTitle>Something went wrong</AlertTitle>
+              <AlertDescription>{errorText}</AlertDescription>
+              {errorAction ? (
+                <AlertAction>
+                  <Button type="button" variant="outline" size="sm" onClick={onErrorAction}>
+                    {errorAction === 'choose-source' ? 'Choose source again' : 'Retry connection'}
+                  </Button>
+                </AlertAction>
+              ) : null}
+            </Alert>
           ) : null}
         </section>
 
-        {errorText ? (
-          <div className="error-banner" role="alert">
-            <p>{errorText}</p>
-            {errorAction === 'choose-source' ? (
-              <button type="button" className="btn btn-ghost" onClick={onErrorAction}>
-                Choose source again
-              </button>
-            ) : null}
-            {errorAction === 'retry' ? (
-              <button type="button" className="btn btn-ghost" onClick={onErrorAction}>
-                Retry connection
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        <section className="subtitle-stage" aria-label="Subtitles">
+        <section className="subtitle-stage transcript-stage" aria-label="Live transcript">
           <div className="subtitle-stage-head">
             <div className="subtitle-toggles">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={showOriginal}
-                  onChange={(e) => setShowOriginal(e.target.checked)}
-                />
-                Show {sourceLabelName}
-              </label>
-              <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+              <span className="subtitle-pair" aria-live="off">
                 {sourceLabelName} → {targetLabelName}
               </span>
-              {hasSource ? (
-                <span style={{ color: 'var(--muted)', fontSize: 12 }} aria-live="off">
-                  Audio {Math.round(level * 100)}%
-                </span>
-              ) : null}
+              <div className="font-size-controls" role="group" aria-label="Text size">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={fontSize <= 14}
+                  title={fontSize <= 14 ? 'Smallest text size' : 'Decrease text size'}
+                  onClick={() => setFontSize((n) => Math.max(14, n - 2))}
+                  aria-label="Decrease text size"
+                >
+                  A−
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={fontSize >= 28}
+                  title={fontSize >= 28 ? 'Largest text size' : 'Increase text size'}
+                  onClick={() => setFontSize((n) => Math.min(28, n + 2))}
+                  aria-label="Increase text size"
+                >
+                  A+
+                </Button>
+              </div>
             </div>
-            <button
+            <Button
               type="button"
-              className="btn-link"
+              variant="ghost"
+              size="sm"
+              disabled={entries.length === 0 && historyItems.length === 0}
+              title={
+                entries.length === 0 && historyItems.length === 0
+                  ? 'Nothing to clear yet'
+                  : 'Clear both transcript panels'
+              }
               onClick={() => {
-                sessionRef.current?.clear();
-                setEntries([]);
-                setHistoryItems([]);
+                if (entries.length === 0 && historyItems.length === 0) return;
+                setConfirmClear(true);
               }}
             >
-              Clear
-            </button>
+              Clear both
+            </Button>
           </div>
-          <TranscriptPanel
+          <DualTranscriptPanel
             items={transcriptItems}
+            sourceLanguageName={sourceLabelName}
+            targetLanguageName={targetLabelName}
+            sourceLangCode={sourceLang}
+            targetLangCode={targetLang}
             fontSize={fontSize}
             empty={
               <div className="transcript-empty">
                 {sessionActive
-                  ? 'Listening for speech…'
+                  ? state === 'connecting' || state === 'reconnecting'
+                    ? 'Connecting… translation starts when the session is ready.'
+                    : state === 'paused'
+                      ? 'Paused — resume to continue translating.'
+                      : 'Listening for speech… paragraphs appear as they are recognized and translated.'
                   : hasSource
-                    ? 'Audio ready — press Start translation when you’re ready. Nothing is sent to Google yet.'
-                    : '1) Choose languages · 2) Choose audio source · 3) Start translation'}
+                    ? 'Audio ready — not translating'
+                    : 'Choose languages and an audio source, then start translation'}
               </div>
             }
           />
         </section>
-
-        <details
-          className="settings-panel"
-          open={settingsOpen && !sessionActive}
-          onToggle={(e) => setSettingsOpen((e.target as HTMLDetailsElement).open)}
-        >
-          <summary>
-            Settings
-            <span aria-hidden>{settingsOpen ? '▴' : '▾'}</span>
-          </summary>
-          <div className="settings-body">
-            <label>
-              Subtitle size
-              <input
-                type="range"
-                min={16}
-                max={28}
-                step={1}
-                value={fontSize}
-                onChange={(e) => setFontSize(Number(e.target.value))}
-                aria-valuetext={`${fontSize} pixels`}
-              />
-            </label>
-            <p style={{ margin: 0, color: 'var(--muted)' }}>
-              Source-language filter for {sourceLabelName}: {pairFilter}. Provider support alone does
-              not verify filtering.
-            </p>
-            {firstSubtitleMs != null ? (
-              <p style={{ margin: 0, color: 'var(--muted)' }}>
-                First subtitle measured at {firstSubtitleMs} ms
-                {metrics ? ` · ${metrics}` : ''}
-              </p>
-            ) : metrics ? (
-              <p style={{ margin: 0, color: 'var(--muted)' }}>{metrics}</p>
-            ) : null}
-          </div>
-        </details>
       </div>
 
-      {pendingPair ? (
-        <div className="confirm-backdrop" role="presentation">
-          <div
-            className="confirm-dialog"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="lang-restart-title"
-          >
-            <h2 id="lang-restart-title">Restart translation?</h2>
-            <p>
+      <AlertDialog
+        open={confirmClear}
+        onOpenChange={setConfirmClear}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear both transcripts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes original and translation text from this session. Translation keeps running if
+              it is already active.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep text</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                sessionRef.current?.clear();
+                setEntries([]);
+                setHistoryItems([]);
+                setConfirmClear(false);
+              }}
+            >
+              Clear both
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(pendingPair)}
+        onOpenChange={(open) => {
+          if (!open) setPendingPair(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restart translation?</AlertDialogTitle>
+            <AlertDialogDescription>
               Changing languages ends the current session. Pending audio is discarded, a new token is
               minted, and late results from the old session are ignored. Existing subtitles stay above
               a language-pair divider.
-            </p>
-            <p>
-              Switch to {languageName(caps, pendingPair.source)} → {languageName(caps, pendingPair.target)}?
-            </p>
-            <div className="confirm-actions">
-              <button type="button" className="btn btn-ghost" onClick={() => setPendingPair(null)}>
-                Keep current
-              </button>
-              <button type="button" className="btn btn-primary" onClick={() => void confirmLanguageRestart()}>
-                Restart with new languages
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+              {pendingPair ? (
+                <>
+                  {' '}
+                  Switch to {languageName(caps, pendingPair.source)} →{' '}
+                  {languageName(caps, pendingPair.target)}?
+                </>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep current</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmLanguageRestart()}>
+              Restart with new languages
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

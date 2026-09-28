@@ -129,7 +129,7 @@ export function CapturePanel() {
       </div>
 
       <div style={{ padding: '28px 30px', flex: 1 }}>
-        <p style={{ marginTop: 0, color: 'var(--muted)', fontSize: 14 }}>{message}</p>
+        <p style={{ marginTop: 0, color: 'var(--muted-foreground)', fontSize: 14 }}>{message}</p>
 
         <div style={{ marginTop: 28 }}>
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Audio activity</div>
@@ -156,7 +156,7 @@ export function CapturePanel() {
               }}
             />
           </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 8 }}>
             {sourceKind ? `Source scope: ${sourceKind === 'tab' ? 'tab / window capture' : 'system playback'}` : 'No source selected'}
             {' · '}
             Level {Math.round(level * 100)}%

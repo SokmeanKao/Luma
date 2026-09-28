@@ -2,7 +2,7 @@
 
 Date: 28 September 2026  
 Branch: `feat/luma-foundation`  
-Worktree: `C:\Dev\Luma\.worktrees\luma-foundation`  
+Checkout: `C:\Dev\Luma`  
 Scope: In-place upgrade of existing `apps/web` (not a recreate). Maven Pro, Luma UI CSS, and demo-mode foundation scope preserved. **No Tailwind** added (approved UI uses mockup CSS tokens).
 
 ## Dist-tag check

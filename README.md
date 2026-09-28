@@ -18,14 +18,14 @@ Personal live audio translation companion (Korean → English). Default UI is th
 Terminal 1 — Go API (loads repo-root `.env`):
 
 ```powershell
-cd C:\Dev\Luma\.worktrees\luma-foundation\services\api
+cd C:\Dev\Luma\services\api
 go run ./cmd/server
 ```
 
 Terminal 2 — Next.js:
 
 ```powershell
-cd C:\Dev\Luma\.worktrees\luma-foundation
+cd C:\Dev\Luma
 pnpm install
 pnpm dev
 ```
@@ -60,7 +60,7 @@ See `docs/ENV_SETUP.md`. Never commit `.env`. Never put `GEMINI_API_KEY` in `NEX
 ## Automated checks
 
 ```powershell
-cd C:\Dev\Luma\.worktrees\luma-foundation
+cd C:\Dev\Luma
 pnpm --filter @luma/translation test
 pnpm --filter @luma/audio test
 pnpm --filter @luma/web build

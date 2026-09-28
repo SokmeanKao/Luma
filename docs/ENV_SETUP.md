@@ -6,14 +6,14 @@
 
 | File | Purpose | Commit? |
 |---|---|---|
-| `C:\Dev\Luma\.worktrees\luma-foundation\.env.example` | Placeholders only | Yes |
-| `C:\Dev\Luma\.worktrees\luma-foundation\.env` | Your real local secrets | **No** (gitignored) |
-| `C:\Dev\Luma\.worktrees\luma-foundation\services\api\.env` | Optional Go-cwd override | **No** (gitignored) |
+| `C:\Dev\Luma\.env.example` | Placeholders only | Yes |
+| `C:\Dev\Luma\.env` | Your real local secrets | **No** (gitignored) |
+| `C:\Dev\Luma\services\api\.env` | Optional Go-cwd override | **No** (gitignored) |
 
 Preferred: create **one** file at the worktree root:
 
 ```powershell
-cd C:\Dev\Luma\.worktrees\luma-foundation
+cd C:\Dev\Luma
 Copy-Item .env.example .env
 notepad .env
 ```
@@ -26,7 +26,7 @@ $env:GEMINI_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"  # ve
 $env:BIND_ADDR = "127.0.0.1:8080"
 $env:ALLOWED_ORIGINS = "http://localhost:3000"
 $env:ENABLE_LIVE_TOKEN_MINT = "false"
-cd C:\Dev\Luma\.worktrees\luma-foundation\services\api
+cd C:\Dev\Luma\services\api
 go run ./cmd/server
 ```
 

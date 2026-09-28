@@ -13,6 +13,7 @@ export type SupportedPair = {
 export type Capabilities = {
   languages: LanguageInfo[];
   supportedPairs: SupportedPair[];
+  allDistinctPairsAllowed?: boolean;
   defaultSourceLanguage: string;
   defaultTargetLanguage: string;
   sourceLanguages: string[];
@@ -43,7 +44,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://127.0.0.1:8080';
 
 export async function fetchCapabilities(): Promise<Capabilities> {
   const res = await fetch(`${API_BASE}/api/v1/capabilities`, {
-    headers: { Origin: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000' },
+    cache: 'no-store',
   });
   if (!res.ok) throw new Error(`capabilities ${res.status}`);
   return (await res.json()) as Capabilities;
@@ -57,7 +58,6 @@ export async function fetchLiveToken(opts: {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Origin: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
     },
     body: JSON.stringify({
       sourceLanguage: opts.sourceLanguage,

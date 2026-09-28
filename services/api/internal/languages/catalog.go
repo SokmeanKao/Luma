@@ -3,16 +3,14 @@ package languages
 import "strings"
 
 // Language is a catalog entry shown in the UI.
-// Only codes that appear in a VerifiedPair are exposed via capabilities.
 type Language struct {
 	Code string `json:"code"`
 	Name string `json:"name"`
 }
 
 // VerifiedPair is a source→target combination allowed for minting and Live sessions.
-// Provider marketing lists are not enough: a pair is listed only after we accept it
-// for this pipeline (token + Live Translate setup + client filter wiring).
-// filterStatus documents whether source-language filtering has been proven for this pair.
+// Codes come from Gemini Live Translate’s published language table.
+// filterStatus stays "unverified" until real-audio evidence is recorded for that pair.
 type VerifiedPair struct {
 	Source       string `json:"source"`
 	Target       string `json:"target"`
@@ -20,21 +18,97 @@ type VerifiedPair struct {
 	Notes        string `json:"notes,omitempty"`
 }
 
+// Primary BCP-47 tags from https://ai.google.dev/gemini-api/docs/live-api/live-translate
+// (zh-Hans/zh-Hant → zh, pt-BR/pt-PT → pt, no/nb → no).
 var catalog = []Language{
-	{Code: "ko", Name: "Korean"},
+	{Code: "af", Name: "Afrikaans"},
+	{Code: "ak", Name: "Akan"},
+	{Code: "sq", Name: "Albanian"},
+	{Code: "am", Name: "Amharic"},
+	{Code: "ar", Name: "Arabic"},
+	{Code: "hy", Name: "Armenian"},
+	{Code: "az", Name: "Azerbaijani"},
+	{Code: "eu", Name: "Basque"},
+	{Code: "be", Name: "Belarusian"},
+	{Code: "bn", Name: "Bengali"},
+	{Code: "bg", Name: "Bulgarian"},
+	{Code: "my", Name: "Burmese"},
+	{Code: "ca", Name: "Catalan"},
+	{Code: "zh", Name: "Chinese"},
+	{Code: "hr", Name: "Croatian"},
+	{Code: "cs", Name: "Czech"},
+	{Code: "da", Name: "Danish"},
+	{Code: "nl", Name: "Dutch"},
 	{Code: "en", Name: "English"},
-	// Add more language rows only when at least one VerifiedPair references them.
+	{Code: "et", Name: "Estonian"},
+	{Code: "fil", Name: "Filipino"},
+	{Code: "fi", Name: "Finnish"},
+	{Code: "fr", Name: "French"},
+	{Code: "gl", Name: "Galician"},
+	{Code: "ka", Name: "Georgian"},
+	{Code: "de", Name: "German"},
+	{Code: "el", Name: "Greek"},
+	{Code: "gu", Name: "Gujarati"},
+	{Code: "ha", Name: "Hausa"},
+	{Code: "he", Name: "Hebrew"},
+	{Code: "hi", Name: "Hindi"},
+	{Code: "hu", Name: "Hungarian"},
+	{Code: "is", Name: "Icelandic"},
+	{Code: "id", Name: "Indonesian"},
+	{Code: "it", Name: "Italian"},
+	{Code: "ja", Name: "Japanese"},
+	{Code: "jv", Name: "Javanese"},
+	{Code: "kn", Name: "Kannada"},
+	{Code: "kk", Name: "Kazakh"},
+	{Code: "km", Name: "Khmer"},
+	{Code: "rw", Name: "Kinyarwanda"},
+	{Code: "ko", Name: "Korean"},
+	{Code: "lo", Name: "Lao"},
+	{Code: "lv", Name: "Latvian"},
+	{Code: "lt", Name: "Lithuanian"},
+	{Code: "mk", Name: "Macedonian"},
+	{Code: "ms", Name: "Malay"},
+	{Code: "ml", Name: "Malayalam"},
+	{Code: "mr", Name: "Marathi"},
+	{Code: "mn", Name: "Mongolian"},
+	{Code: "ne", Name: "Nepali"},
+	{Code: "no", Name: "Norwegian"},
+	{Code: "fa", Name: "Persian"},
+	{Code: "pl", Name: "Polish"},
+	{Code: "pt", Name: "Portuguese"},
+	{Code: "pa", Name: "Punjabi"},
+	{Code: "ro", Name: "Romanian"},
+	{Code: "ru", Name: "Russian"},
+	{Code: "sr", Name: "Serbian"},
+	{Code: "sd", Name: "Sindhi"},
+	{Code: "si", Name: "Sinhala"},
+	{Code: "sk", Name: "Slovak"},
+	{Code: "sl", Name: "Slovenian"},
+	{Code: "es", Name: "Spanish"},
+	{Code: "su", Name: "Sundanese"},
+	{Code: "sw", Name: "Swahili"},
+	{Code: "sv", Name: "Swedish"},
+	{Code: "ta", Name: "Tamil"},
+	{Code: "te", Name: "Telugu"},
+	{Code: "th", Name: "Thai"},
+	{Code: "tr", Name: "Turkish"},
+	{Code: "uk", Name: "Ukrainian"},
+	{Code: "ur", Name: "Urdu"},
+	{Code: "uz", Name: "Uzbek"},
+	{Code: "vi", Name: "Vietnamese"},
+	{Code: "zu", Name: "Zulu"},
 }
 
-// verifiedPairs is the allow-list for mint + UI. Expand only after real-audio evidence
-// in docs/feasibility/F01_LIVE_TRANSLATE_EVIDENCE.md — never from dropdown mockups alone.
-var verifiedPairs = []VerifiedPair{
-	{
-		Source:       "ko",
-		Target:       "en",
-		FilterStatus: "unverified",
-		Notes:        "Default MVP pair. E2E Korean audio -> English subtitles still pending manual evidence.",
-	},
+const pairNote = "Listed for Gemini Live Translate. Source-language filter E2E not proven for this pair."
+
+func known(code string) bool {
+	c := Normalize(code)
+	for _, lang := range catalog {
+		if lang.Code == c {
+			return true
+		}
+	}
+	return false
 }
 
 func Normalize(code string) string {
@@ -51,17 +125,28 @@ func AllLanguages() []Language {
 	return out
 }
 
+// VerifiedPairs returns every ordered pair of distinct catalog languages.
+// Default product pair remains ko→en via DefaultPair().
 func VerifiedPairs() []VerifiedPair {
-	out := make([]VerifiedPair, len(verifiedPairs))
-	copy(out, verifiedPairs)
+	out := make([]VerifiedPair, 0, len(catalog)*(len(catalog)-1))
+	for _, s := range catalog {
+		for _, t := range catalog {
+			if s.Code == t.Code {
+				continue
+			}
+			out = append(out, VerifiedPair{
+				Source:       s.Code,
+				Target:       t.Code,
+				FilterStatus: "unverified",
+				Notes:        pairNote,
+			})
+		}
+	}
 	return out
 }
 
 func DefaultPair() (source, target string) {
-	if len(verifiedPairs) == 0 {
-		return "ko", "en"
-	}
-	return verifiedPairs[0].Source, verifiedPairs[0].Target
+	return "ko", "en"
 }
 
 func IsPairAllowed(source, target string) bool {
@@ -70,58 +155,36 @@ func IsPairAllowed(source, target string) bool {
 	if s == "" || t == "" || s == t {
 		return false
 	}
-	for _, p := range verifiedPairs {
-		if p.Source == s && p.Target == t {
-			return true
-		}
-	}
-	return false
+	return known(s) && known(t)
 }
 
 func PairFilterStatus(source, target string) string {
-	s := Normalize(source)
-	t := Normalize(target)
-	for _, p := range verifiedPairs {
-		if p.Source == s && p.Target == t {
-			return p.FilterStatus
-		}
+	if !IsPairAllowed(source, target) {
+		return "unverified"
 	}
 	return "unverified"
 }
 
 func SourceCodes() []string {
-	seen := map[string]struct{}{}
-	var out []string
-	for _, p := range verifiedPairs {
-		if _, ok := seen[p.Source]; ok {
-			continue
-		}
-		seen[p.Source] = struct{}{}
-		out = append(out, p.Source)
+	out := make([]string, 0, len(catalog))
+	for _, lang := range catalog {
+		out = append(out, lang.Code)
 	}
 	return out
 }
 
 func TargetCodes() []string {
-	seen := map[string]struct{}{}
-	var out []string
-	for _, p := range verifiedPairs {
-		if _, ok := seen[p.Target]; ok {
-			continue
-		}
-		seen[p.Target] = struct{}{}
-		out = append(out, p.Target)
-	}
-	return out
+	return SourceCodes()
 }
 
 func TargetsForSource(source string) []string {
 	s := Normalize(source)
 	var out []string
-	for _, p := range verifiedPairs {
-		if p.Source == s {
-			out = append(out, p.Target)
+	for _, lang := range catalog {
+		if lang.Code == s {
+			continue
 		}
+		out = append(out, lang.Code)
 	}
 	return out
 }

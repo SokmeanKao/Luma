@@ -1,5 +1,7 @@
 :root {
   --ink: #192923;
+  --muted-foreground: #77817b;
+  /* legacy alias used by older inline styles */
   --muted: #77817b;
   --line: #e2e8e2;
   --green: #246849;

@@ -134,6 +134,8 @@ async function main() {
   const transcripts = [];
   const errors = [];
   let setupComplete = false;
+  let audioFrames = 0;
+  let audioBytes = 0;
 
   await new Promise((resolve, reject) => {
     const ws = new WebSocket(token.websocketUrl);
@@ -232,6 +234,18 @@ async function main() {
         });
         log(`   transcript event input=${JSON.stringify(inn || '')} output=${JSON.stringify(out || '')}`);
       }
+      const parts = msg.serverContent?.modelTurn?.parts;
+      if (Array.isArray(parts)) {
+        for (const part of parts) {
+          const mime = part?.inlineData?.mimeType;
+          const data = part?.inlineData?.data;
+          if (data && mime) {
+            audioFrames += 1;
+            audioBytes += Buffer.from(data, 'base64').length;
+            if (audioFrames === 1) log(`   first audio frame mime=${mime} bytes=${Buffer.from(data, 'base64').length}`);
+          }
+        }
+      }
     });
 
     ws.on('unexpected-response', (_req, res) => {
@@ -264,6 +278,7 @@ async function main() {
   log(`   audioKind=${audioKind}`);
   log(`   setupComplete=${setupComplete}`);
   log(`   transcriptEvents=${transcripts.length}`);
+  log(`   translatedAudioFrames=${audioFrames} bytes=${audioBytes}`);
   const english = transcripts.map((t) => t.output).filter(Boolean).join(' ').trim();
   if (!setupComplete) {
     throw new Error('No setupComplete — connection/config failed');
@@ -275,6 +290,11 @@ async function main() {
     return;
   }
   log(`   REAL_TRANSLATED_TEXT=${JSON.stringify(english)}`);
+  if (audioFrames === 0) {
+    log('   warning: no translated audio frames observed (voice playback would be silent)');
+  } else {
+    log('   translated audio frames present — UI can play them when Text + voice is selected');
+  }
   log('   verdict: real translated response received from Gemini');
 }
 

@@ -62,6 +62,9 @@ export function createSessionController(opts: SessionControllerOptions): Session
       if (update.generationId !== undefined && update.generationId !== generationId) {
         return;
       }
+      if (config?.sessionId && update.sessionId && update.sessionId !== config.sessionId) {
+        return;
+      }
       if (state === 'stopped' || state === 'idle' || state === 'error') {
         return;
       }

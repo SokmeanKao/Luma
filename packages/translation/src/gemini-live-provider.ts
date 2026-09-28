@@ -1,4 +1,10 @@
-import { ProviderError, type SessionStartConfig, type TemporaryCredential, type TranscriptUpdate } from './types';
+import {
+  ProviderError,
+  type SessionStartConfig,
+  type TemporaryCredential,
+  type TranscriptUpdate,
+  type TranslatedAudioChunk,
+} from './types';
 
 type Handler = (payload: unknown) => void;
 
@@ -8,15 +14,32 @@ interface ServerMessage {
     inputTranscription?: { text?: string; finished?: boolean; languageCode?: string };
     outputTranscription?: { text?: string; finished?: boolean; languageCode?: string };
     interrupted?: boolean;
+    turnComplete?: boolean;
+    generationComplete?: boolean;
     modelTurn?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> };
   };
   error?: { code?: number; message?: string; status?: string };
 }
 
+function decodeBase64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    out[i] = binary.charCodeAt(i);
+  }
+  return out;
+}
+
+function sameUtteranceText(prev: string, next: string): boolean {
+  if (!prev || !next) return true;
+  if (prev === next) return true;
+  if (next.startsWith(prev) || prev.startsWith(next)) return true;
+  return false;
+}
+
 /**
  * Live Gemini WebSocket provider for Live Translation.
- * Discards returned audio; surfaces output transcription as English subtitles.
- * Does not fall back to mock/demo samples on failure.
+ * Emits output transcription (stable per-segment ids) and translated PCM audio.
  */
 export class GeminiLiveProvider {
   private handlers = new Map<string, Handler[]>();
@@ -26,7 +49,11 @@ export class GeminiLiveProvider {
   private generationId = 0;
   private sessionId = 'live';
   private segmentSeq = 0;
-  private pendingPartialId: string | null = null;
+  /** Stable id for the currently open (non-final) output segment. */
+  private openSegmentId: string | null = null;
+  private openRevision = 0;
+  private openHadOutput = false;
+  private lastOutputText = '';
   private connectStartedAt = 0;
   private lastInputText?: string;
   private lastInputLanguage?: string;
@@ -54,8 +81,13 @@ export class GeminiLiveProvider {
     this.sendingAllowed = false;
     this.sessionId = config.sessionId ?? `live-${Date.now()}`;
     this.segmentSeq = 0;
-    this.pendingPartialId = null;
+    this.openSegmentId = null;
+    this.openRevision = 0;
+    this.openHadOutput = false;
+    this.lastOutputText = '';
     this.connectStartedAt = Date.now();
+    this.lastInputText = undefined;
+    this.lastInputLanguage = undefined;
     this.generationId += 1;
     const generation = this.generationId;
 
@@ -96,8 +128,6 @@ export class GeminiLiveProvider {
         const model = cred.model.startsWith('models/') ? cred.model : `models/${cred.model}`;
         const target = cred.targetLanguageCode || 'en';
         const echo = Boolean(cred.echoTargetLanguage);
-        // Live Translate: translationConfig lives under generationConfig;
-        // input/output transcription configs are siblings of generationConfig (not nested inside it).
         ws.send(
           JSON.stringify({
             setup: {
@@ -198,46 +228,154 @@ export class GeminiLiveProvider {
     }
   }
 
+  private ensureOpenSegment(): string {
+    if (!this.openSegmentId) {
+      this.openSegmentId = `out-${++this.segmentSeq}`;
+      this.openRevision = 0;
+      this.lastOutputText = '';
+    }
+    return this.openSegmentId;
+  }
+
+  private emitTranscript(update: TranscriptUpdate): void {
+    this.emit('transcript', update);
+  }
+
+  /** Finalize the open segment using the last known text (documented completion signals). */
+  private finalizeOpenSegment(generation: number): void {
+    if (!this.openSegmentId || !this.openHadOutput) {
+      this.openSegmentId = null;
+      this.openRevision = 0;
+      this.openHadOutput = false;
+      return;
+    }
+    this.openRevision += 1;
+    this.emitTranscript({
+      sessionId: this.sessionId,
+      segmentId: this.openSegmentId,
+      revision: this.openRevision,
+      sourceLanguage: this.lastInputLanguage,
+      originalText: this.lastInputText,
+      translatedText: this.lastOutputText,
+      final: true,
+      captureTimestamp: Date.now(),
+      generationId: generation,
+    });
+    this.openSegmentId = null;
+    this.openRevision = 0;
+    this.openHadOutput = false;
+    this.lastOutputText = '';
+    this.lastInputText = undefined;
+  }
+
   private handleServerContent(msg: ServerMessage, generation: number): void {
     if (this.generationId !== generation || this.closed) return;
     const content = msg.serverContent;
     if (!content) return;
 
     if (content.interrupted) {
-      this.emit('interrupted', { at: Date.now() });
-    }
-
-    // Discard provider audio output (subtitle MVP) — do not play inlineData.
-    if (content.modelTurn?.parts) {
-      // intentionally ignored
+      this.finalizeOpenSegment(generation);
+      this.emit('interrupted', { at: Date.now(), generationId: generation, sessionId: this.sessionId });
     }
 
     const input = content.inputTranscription;
-    if (input?.text) {
-      this.lastInputText = input.text;
-      if (input.languageCode) this.lastInputLanguage = input.languageCode;
+    if (input?.text || input?.languageCode) {
+      if (input.text) {
+        const prev = this.lastInputText ?? '';
+        // New distinct input utterance while a paragraph is open → finalize prior segment.
+        if (this.openHadOutput && prev && !sameUtteranceText(prev, input.text)) {
+          this.finalizeOpenSegment(generation);
+        }
+        this.lastInputText = input.text;
+        if (input.languageCode) this.lastInputLanguage = input.languageCode;
+
+        // Emit original speech into the open paragraph so the left column can fill before translation.
+        const segmentId = this.ensureOpenSegment();
+        this.openRevision += 1;
+        this.openHadOutput = true;
+        this.emitTranscript({
+          sessionId: this.sessionId,
+          segmentId,
+          revision: this.openRevision,
+          sourceLanguage: this.lastInputLanguage ?? input.languageCode,
+          originalText: input.text,
+          translatedText: this.lastOutputText,
+          final: input.finished === true,
+          captureTimestamp: Date.now(),
+          generationId: generation,
+        });
+        if (input.finished === true) {
+          this.openSegmentId = null;
+          this.openRevision = 0;
+          this.openHadOutput = false;
+          this.lastOutputText = '';
+          this.lastInputText = undefined;
+        }
+      }
+      if (input.languageCode) {
+        this.lastInputLanguage = input.languageCode;
+        this.emit('inputLanguage', {
+          languageCode: input.languageCode,
+          generationId: generation,
+          sessionId: this.sessionId,
+        });
+      }
     }
+
+    if (content.modelTurn?.parts) {
+      for (const part of content.modelTurn.parts) {
+        const inline = part.inlineData;
+        if (!inline?.data || !inline.mimeType) continue;
+        let pcm: Uint8Array;
+        try {
+          pcm = decodeBase64ToBytes(inline.data);
+        } catch {
+          continue;
+        }
+        const chunk: TranslatedAudioChunk = {
+          sessionId: this.sessionId,
+          generationId: generation,
+          mimeType: inline.mimeType,
+          pcm,
+          sampleRate: 0,
+          detectedSourceLanguage: this.lastInputLanguage,
+        };
+        this.emit('audio', chunk);
+      }
+    }
+
     const output = content.outputTranscription;
     if (output?.text) {
-      const finished = Boolean(output.finished);
-      const segmentId = finished
-        ? `out-${++this.segmentSeq}`
-        : this.pendingPartialId ?? `out-partial-${this.segmentSeq + 1}`;
-      if (!finished) this.pendingPartialId = segmentId;
-      else this.pendingPartialId = null;
+      const segmentId = this.ensureOpenSegment();
+      this.openRevision += 1;
+      this.openHadOutput = true;
+      this.lastOutputText = output.text;
+      const finished = output.finished === true;
 
-      const update: TranscriptUpdate = {
+      this.emitTranscript({
         sessionId: this.sessionId,
         segmentId,
-        revision: finished ? 2 : 1,
+        revision: this.openRevision,
         sourceLanguage: this.lastInputLanguage ?? input?.languageCode,
         originalText: this.lastInputText ?? input?.text,
         translatedText: output.text,
         final: finished,
         captureTimestamp: Date.now(),
         generationId: generation,
-      };
-      this.emit('transcript', update);
+      });
+
+      if (finished) {
+        this.openSegmentId = null;
+        this.openRevision = 0;
+        this.openHadOutput = false;
+        this.lastOutputText = '';
+        this.lastInputText = undefined;
+      }
+    }
+
+    // Documented Live API completion signals (finished is often absent on consumer API).
+    if (content.turnComplete === true || content.generationComplete === true) {
+      this.finalizeOpenSegment(generation);
     }
   }
 
@@ -250,7 +388,6 @@ export class GeminiLiveProvider {
       binary += String.fromCharCode(bytes[i] ?? 0);
     }
     const data = btoa(binary);
-    // Live Translate docs show camelCase realtimeInput for JS SDK / some WS examples.
     this.ws.send(
       JSON.stringify({
         realtimeInput: {
@@ -280,7 +417,11 @@ export class GeminiLiveProvider {
   async close(): Promise<void> {
     this.sendingAllowed = false;
     this.closed = true;
-    this.generationId += 1; // reject late callbacks
+    this.generationId += 1;
+    this.openSegmentId = null;
+    this.openRevision = 0;
+    this.openHadOutput = false;
+    this.lastOutputText = '';
     const ws = this.ws;
     this.ws = null;
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
