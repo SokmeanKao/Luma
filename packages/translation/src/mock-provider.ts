@@ -17,13 +17,13 @@ export class MockTranslationProvider implements TranslationProvider {
   private config: SessionStartConfig | null = null;
   private closed = false;
 
-  on(event: 'transcript' | 'error' | 'usage', handler: Handler): void {
+  on(event: string, handler: Handler): void {
     const list = this.handlers.get(event) ?? [];
     list.push(handler);
     this.handlers.set(event, list);
   }
 
-  async connect(config: SessionStartConfig, _temporaryCredential: string): Promise<void> {
+  async connect(config: SessionStartConfig, _temporaryCredential: string | { token: string }): Promise<void> {
     this.config = config;
     this.closed = false;
     this.index = 0;

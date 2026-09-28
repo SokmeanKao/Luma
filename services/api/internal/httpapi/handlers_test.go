@@ -11,16 +11,18 @@ import (
 	"github.com/luma-app/luma/services/api/internal/config"
 )
 
-func testServer(key string) *Server {
+func testServer(key string, mint bool) *Server {
 	return NewServer(config.Config{
-		BindAddr:       "127.0.0.1:8080",
-		AllowedOrigins: []string{"http://localhost:3000"},
-		GeminiAPIKey:   key,
+		BindAddr:            "127.0.0.1:8080",
+		AllowedOrigins:      []string{"http://localhost:3000"},
+		GeminiAPIKey:        key,
+		GeminiModel:         "models/test-model",
+		EnableLiveTokenMint: mint,
 	})
 }
 
 func TestHealthz(t *testing.T) {
-	srv := testServer("")
+	srv := testServer("", false)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, req)
@@ -41,7 +43,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestCapabilities_NoFabricatedQuota(t *testing.T) {
-	srv := testServer("")
+	srv := testServer("", false)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
 	rr := httptest.NewRecorder()
@@ -58,12 +60,12 @@ func TestCapabilities_NoFabricatedQuota(t *testing.T) {
 		t.Fatal(err)
 	}
 	if body.ProviderAvailable {
-		t.Fatal("providerAvailable should be false until mint verified")
+		t.Fatal("providerAvailable should stay false until live gates verified")
 	}
 }
 
 func TestLiveToken_InvalidLanguage(t *testing.T) {
-	srv := testServer("")
+	srv := testServer("", false)
 	payload := []byte(`{"sourceLanguage":"fr","targetLanguage":"en"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/live-token", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -81,7 +83,7 @@ func TestLiveToken_InvalidLanguage(t *testing.T) {
 }
 
 func TestLiveToken_NotConfigured(t *testing.T) {
-	srv := testServer("")
+	srv := testServer("", false)
 	payload := []byte(`{"sourceLanguage":"ko","targetLanguage":"en"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/live-token", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -103,8 +105,9 @@ func TestLiveToken_NotConfigured(t *testing.T) {
 	}
 }
 
-func TestLiveToken_NoFabricatedTokenEvenWithKey(t *testing.T) {
-	srv := testServer("fake-secret-key")
+func TestLiveToken_KeyAloneDoesNotFabricateToken(t *testing.T) {
+	// Key present but mint flag off → still not configured; never invent a credential.
+	srv := testServer("fake-secret-key", false)
 	payload := []byte(`{"sourceLanguage":"ko","targetLanguage":"en"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/live-token", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -119,13 +122,13 @@ func TestLiveToken_NoFabricatedTokenEvenWithKey(t *testing.T) {
 		t.Fatalf("code=%s", errBody.Code)
 	}
 	raw := rr.Body.String()
-	if strings.Contains(raw, "temporaryCredential") || strings.Contains(raw, "ephemeral") || strings.Contains(raw, "fake-secret") {
+	if strings.Contains(raw, "temporaryCredential") || strings.Contains(raw, "fake-secret") {
 		t.Fatalf("response appears to include a credential: %s", raw)
 	}
 }
 
 func TestLiveToken_NoStoreHeader(t *testing.T) {
-	srv := testServer("")
+	srv := testServer("", false)
 	payload := []byte(`{"sourceLanguage":"ko","targetLanguage":"en"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/live-token", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -137,7 +140,7 @@ func TestLiveToken_NoStoreHeader(t *testing.T) {
 }
 
 func TestLiveToken_RejectsDisallowedOrigin(t *testing.T) {
-	srv := testServer("")
+	srv := testServer("", false)
 	payload := []byte(`{"sourceLanguage":"ko","targetLanguage":"en"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/live-token", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")

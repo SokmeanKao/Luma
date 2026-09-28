@@ -1,17 +1,18 @@
 # Feasibility gates
 
-Recorded for the Luma five-stage plan. Mock/demo behavior is **not** live provider evidence. Capture-test mode is **not** translation evidence.
+Mock/demo and Capture-test success are **not** live translation evidence.
 
 | Gate | Status | Blocker / notes |
 |---|---|---|
-| F-01 Translated text | pending verification | **Blocker:** no Gemini credentials exercised. Demo mock subtitles are not live evidence. Stage 3 not started. |
-| F-02 Source-language filtering | pending verification | **Blocker:** live filter unverified. Mock skip ≠ provider evidence. |
-| F-03 Authentication / ephemeral tokens | pending verification | **Blocker:** live-token returns `CONFIGURATION_MISSING` / not configured; no Google mint. |
-| F-04 Web capture | pending verification | Capture-test UI + activity meter implemented (no Gemini). **Remaining:** fill `docs/feasibility/F04_CAPTURE_EVIDENCE.md` with real Chrome/Edge Windows results. |
-| F-05 Windows capture | pending verification | **Blocker:** `@luma/desktop` stub only; Electron Stage 5 not implemented. |
-| F-06 Quota / session limits | pending verification | **Blocker:** no live quota measurement; requires credentials + project dashboard. |
+| F-01 Translated text | pending verification | **Not executed** against Gemini in CI. Adapter scaffolding exists; Live UI disabled. Needs credentials + eligibility + live session proof. |
+| F-02 Source-language filtering | pending verification | Unit/mock filter helpers exist. Live Korean/English/other/silence matrix **not executed**. |
+| F-03 Authentication / ephemeral tokens | pending verification | Mint path coded behind `ENABLE_LIVE_TOKEN_MINT=true` + `GEMINI_API_KEY`. Default remains not configured. Live mint **not marked passed**. |
+| F-04 Web capture | pending verification | Capture-test UI ready. **Human Chrome/Edge matrix** in `F04_CAPTURE_EVIDENCE.md` still required to declare capture verified. Does **not** block independent Stage 3 coding. |
+| F-05 Windows capture | pending verification | Electron stub only. |
+| F-06 Quota / session limits | pending verification | No live quota measurement; no fabricated remaining-minutes. |
 
-## Stage gating
+## Stage gating (corrected)
 
-- Stage 3 (Gemini) must not start until F-04 evidence is recorded and free-tier eligibility is checked.
-- Never represent Demo or Capture-test success as Live translation success.
+- **F-04** blocks declaring **web capture verified**, not all Stage 3 development.
+- **Live mode** stays disabled until required integration gates (token + provider + filtering evidence) pass.
+- Do not mark unexecuted provider tests as passed.

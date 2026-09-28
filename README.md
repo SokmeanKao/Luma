@@ -30,7 +30,25 @@ pnpm dev
 
 Open http://localhost:3000 → use **Capture test** → **Select audio source** → enable Share tab audio. Record results in `docs/feasibility/F04_CAPTURE_EVIDENCE.md`.
 
-Do **not** start Stage 3 (Gemini) until that evidence file is filled and free-tier eligibility is checked.
+## Credentials (local only)
+
+Documented in `docs/ENV_SETUP.md`.
+
+```powershell
+cd C:\Dev\Luma\.worktrees\luma-foundation
+Copy-Item .env.example .env
+# Edit .env locally — never commit it. Never use NEXT_PUBLIC_ for GEMINI_API_KEY.
+```
+
+| Variable | Where | Notes |
+|---|---|---|
+| `GEMINI_API_KEY` | `.env` / process env for Go | Server-side only |
+| `GEMINI_MODEL` | `.env` | Required before mint |
+| `ENABLE_LIVE_TOKEN_MINT` | `.env` | Default `false` |
+| `NEXT_PUBLIC_API_BASE` | `.env` | Public loopback URL only |
+
+Live UI stays disabled until integration gates pass. Billing, push, and deploy remain off.
+
 
 
 Go API (separate terminal):

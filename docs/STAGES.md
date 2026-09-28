@@ -1,13 +1,13 @@
 # Luma five-stage tracker
 
-Demo success is never treated as live translation success.
+Demo / Capture-test success is never treated as live translation success.
 
-| Stage | Name | Status | Exit condition |
+| Stage | Name | Status | Notes |
 |---|---|---|---|
-| 1 | Foundation | **complete** (this branch) | Web demo runs; controls/tests/build pass; no Gemini claimed |
-| 2 | Browser capture | in progress | Manual Chrome/Edge evidence recorded; activity meter; Stop releases tracks |
-| 3 | Gemini + filtering | blocked | Real translation + filter evidence; free-tier eligibility recorded |
-| 4 | Web live integration | blocked | Teams + YouTube E2E with mic denied |
-| 5 | Windows Electron | blocked / stub only | Real Windows build + capture evidence |
+| 1 | Foundation | **complete** | Demo web + Go stub + Next 16.3.6 |
+| 2 | Browser capture | **implementation complete**; F-04 evidence pending human runs | Use Capture test on http://localhost:3000 |
+| 3 | Gemini + filtering | **independent implementation in progress** | Token mint opt-in, PCM pipeline, provider interfaces, failure handling. Live UI off. Provider verification pending credentials/eligibility. |
+| 4 | Web live integration | blocked on Live enablement gates | |
+| 5 | Windows Electron | stub only | |
 
-See `docs/superpowers/plans/2026-09-28-luma-five-stages.md`.
+F-04 evidence does **not** block Stage 3 coding; it blocks claiming capture verified and later Live E2E.
