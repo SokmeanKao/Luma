@@ -1,5 +1,6 @@
 'use client';
 
+import { ArrowLeftRightIcon } from 'lucide-react';
 import type { Capabilities } from '../lib/api';
 import {
   effectiveLanguages,
@@ -110,7 +111,7 @@ export function LanguagePairControls({
   return (
     <div className="lang-pair lang-pair--compact" role="group" aria-label="Language pair">
       <LanguageCombobox
-        label="Translate from"
+        label="From"
         value={source}
         options={sources}
         languages={languages}
@@ -122,8 +123,8 @@ export function LanguagePairControls({
       <Button
         type="button"
         variant="ghost"
-        size="icon-sm"
-        className="lang-swap shrink-0"
+        size="icon"
+        className="lang-swap session-control-icon shrink-0"
         disabled={disabled || !swapOk}
         title={
           disabled
@@ -138,10 +139,10 @@ export function LanguagePairControls({
           onRequestChange({ source: target, target: source });
         }}
       >
-        ⇄
+        <ArrowLeftRightIcon className="size-4" aria-hidden />
       </Button>
       <LanguageCombobox
-        label="Translate into"
+        label="To"
         value={target}
         options={targets}
         languages={languages}

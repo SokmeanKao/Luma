@@ -2,6 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  AudioLinesIcon,
+  EraserIcon,
+  LoaderCircleIcon,
+  PauseIcon,
+  PlayIcon,
+  RefreshCwIcon,
+  SquareIcon,
+} from 'lucide-react';
+import {
   Brand,
   PrivacyLabel,
   SessionControls,
@@ -37,6 +46,7 @@ import {
 import { fetchCapabilities, fetchLiveToken, type Capabilities } from '../lib/api';
 import { effectivePairs } from '../lib/language-catalog';
 import { AudioSettingsDialog } from './AudioSettingsDialog';
+import { StatusIndicator, statusToneFromState } from './StatusIndicator';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './ui/alert';
 import {
   AlertDialog,
@@ -127,6 +137,39 @@ function emptyVoiceDiag(): VoiceDiag {
   };
 }
 
+function friendlyErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ProviderError) {
+    switch (err.code) {
+      case 'QUOTA_EXHAUSTED':
+        return 'Translation quota is used up for now. Try again later.';
+      case 'RATE_LIMITED':
+        return 'The translation service is busy. Wait a moment, then retry.';
+      case 'NOT_AUTHORIZED':
+        return 'This session isn’t authorized. Restart the API and try again.';
+      case 'CONFIGURATION_MISSING':
+        return 'Live translation isn’t configured yet. Check API settings and free-tier eligibility.';
+      case 'SESSION_EXPIRED':
+        return 'The translation session ended. Start again to continue.';
+      case 'NETWORK':
+      case 'PROVIDER_UNAVAILABLE':
+        return 'Could not reach the translation service. Check your connection and try again.';
+      default:
+        return err.message?.trim() || fallback;
+    }
+  }
+  const code = (err as { code?: string } | null)?.code;
+  if (code === 'CONFIGURATION_MISSING' || code === 'NOT_CONFIGURED') {
+    return 'Live translation isn’t configured yet. Check API settings and free-tier eligibility.';
+  }
+  if (code === 'QUOTA_EXHAUSTED' || code === 'RATE_LIMITED') {
+    return code === 'QUOTA_EXHAUSTED'
+      ? 'Translation quota is used up for now. Try again later.'
+      : 'The translation service is busy. Wait a moment, then retry.';
+  }
+  if (err instanceof Error && err.message.trim()) return err.message.trim();
+  return fallback;
+}
+
 /**
  * Primary Luma web app: native tab picker → PCM → Gemini → English subtitles (+ optional voice).
  * Never falls back to demo samples on failure.
@@ -137,7 +180,7 @@ export function LiveWorkspace() {
   const [state, setState] = useState<SessionState>('idle');
   const [entries, setEntries] = useState<TranscriptUpdate[]>([]);
   const [seconds, setSeconds] = useState(0);
-  const [, setLevel] = useState(0);
+  const [level, setLevel] = useState(0);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [errorAction, setErrorAction] = useState<ErrorAction>(null);
   const [sourceLabel, setSourceLabel] = useState('No source selected');
@@ -577,6 +620,8 @@ export function LiveWorkspace() {
       );
       startActivityMeter(result.stream);
       setState('idle');
+      // Same capture gesture → begin translating without a second Start click.
+      void startTranslation();
     } catch (err) {
       releaseCapture();
       if (err instanceof CaptureCancelledError) {
@@ -628,7 +673,7 @@ export function LiveWorkspace() {
     const stream = streamRef.current;
     if (!session) return;
 
-    if (!stream || !hasSource) {
+    if (!stream) {
       setErrorText('Choose an audio source first.');
       setErrorAction('choose-source');
       return;
@@ -646,6 +691,32 @@ export function LiveWorkspace() {
     setErrorAction(null);
     firstSeen.current = false;
     setFirstSubtitleMs(null);
+    // Preserve prior paragraphs above a divider when restarting (Stop → Start).
+    if (entries.length > 0) {
+      const snapshot: TranscriptItem[] = groupTranscriptParagraphs(entries).map((p) => ({
+        kind: 'entry' as const,
+        entry: {
+          segmentId: `hist-${p.id}-${Date.now()}`,
+          timeLabel: '',
+          originalText: p.originalText || undefined,
+          translatedText: p.translatedText,
+          showOriginal,
+          fontSize,
+          final: true,
+          sourceLang: sourceLangRef.current,
+          targetLang: targetLangRef.current,
+        },
+      }));
+      setHistoryItems((prev) => [
+        ...prev,
+        ...snapshot,
+        {
+          kind: 'divider',
+          id: `div-restart-${Date.now()}`,
+          label: 'Previous session',
+        },
+      ]);
+    }
     setEntries([]);
     setSeconds(0);
     setVoiceGapNote(null);
@@ -669,8 +740,7 @@ export function LiveWorkspace() {
         targetLanguage: targetLangRef.current,
       });
     } catch (err) {
-      const code = (err as { code?: string }).code;
-      setErrorText(`${code ?? 'ERROR'}: ${err instanceof Error ? err.message : 'Could not start a secure session.'}`);
+      setErrorText(friendlyErrorMessage(err, 'Could not start a secure session.'));
       setErrorAction('retry');
       setState('error');
       setStarting(false);
@@ -833,7 +903,10 @@ export function LiveWorkspace() {
             if (activeSessionIdRef.current !== sessionId) return;
             translatingRef.current = false;
             setErrorText(
-              `Could not reconnect: ${reconnectErr instanceof Error ? reconnectErr.message : 'unknown error'}.`,
+              friendlyErrorMessage(
+                reconnectErr,
+                'Could not reconnect. Check your connection and try again.',
+              ),
             );
             setErrorAction('retry');
             setState('error');
@@ -841,7 +914,7 @@ export function LiveWorkspace() {
         })();
         return;
       }
-      setErrorText(`${err.code}: ${err.message}`);
+      setErrorText(friendlyErrorMessage(err, 'Something went wrong with translation.'));
       setErrorAction('retry');
       if (session.getState() !== 'stopped') setState('error');
     });
@@ -893,9 +966,7 @@ export function LiveWorkspace() {
       activeGenerationRef.current = session.getGenerationId();
       activeSessionIdRef.current = null;
       const pe = err instanceof ProviderError ? err : null;
-      setErrorText(
-        `${pe?.code ?? 'ERROR'}: ${err instanceof Error ? err.message : 'Could not connect.'}`,
-      );
+      setErrorText(friendlyErrorMessage(pe ?? err, 'Could not connect.'));
       setErrorAction('retry');
       setState('error');
     } finally {
@@ -997,12 +1068,42 @@ export function LiveWorkspace() {
         ? 'Resume'
         : state === 'reconnecting' || state === 'connecting' || starting
           ? 'Connecting…'
-          : 'Start translation';
-  // Start stays off until pair + source are ready. Pause/Resume stay usable while active.
+          : hasSource
+            ? 'Start translation'
+            : 'Choose audio source';
+  const primaryIcon =
+    primaryLabel === 'Pause' ? (
+      <PauseIcon className="size-4" aria-hidden />
+    ) : primaryLabel === 'Resume' || primaryLabel === 'Start translation' ? (
+      <PlayIcon className="size-4" aria-hidden />
+    ) : primaryLabel === 'Connecting…' ? (
+      <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
+    ) : (
+      <AudioLinesIcon className="size-4" aria-hidden />
+    );
+  // Before capture, primary chooses source. After capture / while active, Start/Pause/Resume.
   const primaryBlocked =
     state === 'listening' || state === 'paused'
       ? false
-      : !canStart || starting || state === 'connecting' || state === 'reconnecting';
+      : !hasSource
+        ? busy
+        : !canStart || starting || state === 'connecting' || state === 'reconnecting';
+  const showStop = busy || state === 'error' || state === 'quota_exhausted';
+  const hasTranscript = entries.length > 0 || historyItems.length > 0;
+  const voiceUnavailableReason = !hasSource
+    ? 'Choose a Chrome tab (Teams / YouTube) with Share tab audio. Window or entire-screen capture can’t use Text + voice — Luma would hear its own speech.'
+    : !voicePlaybackSafe
+      ? sourceDetail.includes('window')
+        ? 'This capture is an app window. Stop, choose source again, and pick a Chrome Tab (not Window or Entire screen).'
+        : sourceDetail.includes('screen')
+          ? 'This capture is the entire screen. Stop, choose source again, and pick a Chrome Tab with Share tab audio.'
+          : 'This capture isn’t a browser tab (or the browser didn’t report one). Stop and re-share a Chrome Tab with Share tab audio.'
+      : null;
+  const voiceHelpShort = !hasSource
+    ? 'Needs a Chrome tab + Share tab audio.'
+    : !voicePlaybackSafe
+      ? 'Needs a Chrome tab (not window/screen).'
+      : null;
   const sourceLabelName = languageName(caps, sourceLang);
   const targetLabelName = languageName(caps, targetLang);
   const stageClass = [
@@ -1015,6 +1116,14 @@ export function LiveWorkspace() {
   ]
     .filter(Boolean)
     .join(' ');
+
+  function onPrimaryClick() {
+    if (!hasSource && !busy) {
+      void selectAudioSource();
+      return;
+    }
+    onPrimary();
+  }
 
   return (
     <div className="app-shell app-shell--live">
@@ -1034,119 +1143,129 @@ export function LiveWorkspace() {
               onRequestChange={requestLanguageChange}
             />
 
-            <div className="session-source" title={hasSource ? sourceLabel : undefined}>
+            <div className={`session-source-slot${hasSource ? ' has-source' : ''}`}>
               {hasSource ? (
-                <>
+                <div
+                  className="session-source-card"
+                  title={sourceDetail ? `${sourceLabel} — ${sourceDetail}` : sourceLabel}
+                >
+                  <AudioLinesIcon className="session-source-card-icon size-3.5" aria-hidden />
                   <div className="session-source-text">
                     <span className="session-source-name">{sourceLabel}</span>
-                    {sourceDetail ? (
-                      <span className="session-source-detail">{sourceDetail}</span>
-                    ) : null}
                   </div>
                   <Button
                     type="button"
-                    variant="outline"
-                    size="sm"
+                    variant="ghost"
+                    className="session-source-change"
                     disabled={busy}
                     title={busy ? 'Stop translation to change source' : 'Change audio source'}
                     aria-label={busy ? 'Stop translation to change source' : 'Change audio source'}
                     onClick={() => void selectAudioSource()}
                   >
-                    Change
+                    <RefreshCwIcon className="size-3.5" aria-hidden />
                   </Button>
-                </>
+                </div>
               ) : (
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy}
-                  title={busy ? 'Stop translation to choose a different source' : 'Choose a browser tab or window to translate'}
-                  onClick={() => void selectAudioSource()}
-                >
-                  Choose source
-                </Button>
+                <div className="session-source-placeholder" aria-hidden>
+                  <span className="session-source-placeholder-label">
+                    <AudioLinesIcon className="size-3.5" aria-hidden />
+                    Audio source
+                  </span>
+                  <span className="session-source-placeholder-hint">Not chosen yet</span>
+                </div>
               )}
             </div>
 
             <div className="session-output">
-              <ToggleGroup
-                type="single"
-                value={outputMode}
-                onValueChange={(next) => {
-                  if (next === 'text' || next === 'text-voice') setOutputModeSafe(next);
-                }}
-                variant="outline"
-                spacing={0}
-                size="sm"
-                aria-label="Translation output"
-              >
-                <ToggleGroupItem value="text" className="px-2.5">
-                  Text
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="text-voice"
-                  className="px-2.5"
-                  disabled={!voicePlaybackSafe && !hasSource}
-                  title={
-                    voicePlaybackSafe
-                      ? 'Play translated speech with subtitles'
-                      : 'Choose a browser tab (not this screen) to enable voice'
-                  }
+              <div className="session-output-modes">
+                <ToggleGroup
+                  type="single"
+                  value={outputMode}
+                  onValueChange={(next) => {
+                    if (next === 'text' || next === 'text-voice') setOutputModeSafe(next);
+                  }}
+                  variant="outline"
+                  spacing={0}
+                  aria-label="Translation output"
                 >
-                  Text + voice
-                </ToggleGroupItem>
-              </ToggleGroup>
-              <AudioSettingsDialog
-                enabled={outputMode === 'text-voice'}
-                voiceVolume={voiceVolume}
-                voiceMuted={voiceMuted}
-                originalVolume={originalVolume}
-                duckOriginal={duckOriginal}
-                duckLevel={duckLevel}
-                canDuckOriginal={canDuckOriginal}
-                onVoiceVolume={setVoiceVolume}
-                onVoiceMuted={setVoiceMuted}
-                onOriginalVolume={setOriginalVolume}
-                onDuckOriginal={setDuckOriginal}
-                onDuckLevel={setDuckLevel}
-              />
+                  <ToggleGroupItem value="text" className="session-control px-3.5 text-sm">
+                    Text
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="text-voice"
+                    className="session-control px-3.5 text-sm"
+                    disabled={Boolean(voiceUnavailableReason)}
+                    title={voiceUnavailableReason ?? 'Play translated speech with subtitles'}
+                    aria-description={voiceUnavailableReason ?? undefined}
+                  >
+                    Text + voice
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                {voiceHelpShort ? (
+                  <p className="session-help" role="note" title={voiceUnavailableReason ?? undefined}>
+                    {voiceHelpShort}
+                  </p>
+                ) : null}
+              </div>
+              {outputMode === 'text-voice' || voicePlaybackSafe ? (
+                <AudioSettingsDialog
+                  enabled={outputMode === 'text-voice'}
+                  voiceVolume={voiceVolume}
+                  voiceMuted={voiceMuted}
+                  originalVolume={originalVolume}
+                  duckOriginal={duckOriginal}
+                  duckLevel={duckLevel}
+                  canDuckOriginal={canDuckOriginal}
+                  onVoiceVolume={setVoiceVolume}
+                  onVoiceMuted={setVoiceMuted}
+                  onOriginalVolume={setOriginalVolume}
+                  onDuckOriginal={setDuckOriginal}
+                  onDuckLevel={setDuckLevel}
+                />
+              ) : null}
             </div>
           </div>
 
           <div className="session-toolbar-row session-toolbar-row--actions">
-            <StatusLine>{statusCopy(state, hasSource, pairOk)}</StatusLine>
-            {!voicePlaybackSafe && hasSource ? (
-              <span className="session-note">Voice off for this capture (loop risk)</span>
-            ) : null}
+            <StatusLine
+              tone={statusToneFromState(state, hasSource)}
+              indicator={
+                <StatusIndicator
+                  tone={statusToneFromState(state, hasSource)}
+                  activity={state === 'listening' ? level : 0}
+                />
+              }
+            >
+              {statusCopy(state, hasSource, pairOk)}
+            </StatusLine>
             {voiceGapNote ? <span className="session-note">{voiceGapNote}</span> : null}
             <SessionControls
               timerLabel={sessionActive || seconds > 0 ? clock(seconds) : undefined}
               primaryLabel={primaryLabel}
-              onPrimary={onPrimary}
+              onPrimary={onPrimaryClick}
               onStop={() => void onStop()}
               primaryDisabled={primaryBlocked}
-              stopDisabled={!busy && state !== 'error' && state !== 'quota_exhausted'}
+              stopDisabled={!showStop}
+              showStop={showStop}
               stopAction={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void onStop()}
-                  disabled={!busy && state !== 'error' && state !== 'quota_exhausted'}
-                  title={
-                    !busy && state !== 'error' && state !== 'quota_exhausted'
-                      ? 'Nothing to stop yet'
-                      : 'Stop translation and release capture'
-                  }
-                >
-                  Stop
-                </Button>
+                showStop ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="session-control"
+                    onClick={() => void onStop()}
+                    title="Stop translation and release capture"
+                  >
+                    <SquareIcon className="size-3.5 fill-current" aria-hidden />
+                    Stop
+                  </Button>
+                ) : null
               }
               primaryAction={
                 <Button
                   type="button"
-                  className="session-primary"
-                  onClick={onPrimary}
+                  className="session-primary session-control"
+                  onClick={onPrimaryClick}
                   disabled={primaryBlocked}
                   title={
                     primaryBlocked
@@ -1158,6 +1277,7 @@ export function LiveWorkspace() {
                       : primaryLabel
                   }
                 >
+                  {primaryIcon}
                   {primaryLabel}
                 </Button>
               }
@@ -1224,75 +1344,79 @@ export function LiveWorkspace() {
         </section>
 
         <section className="subtitle-stage transcript-stage" aria-label="Live transcript">
-          <div className="subtitle-stage-head">
-            <div className="subtitle-toggles">
-              <span className="subtitle-pair" aria-live="off">
-                {sourceLabelName} → {targetLabelName}
-              </span>
-              <div className="font-size-controls" role="group" aria-label="Text size">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={fontSize <= 14}
-                  title={fontSize <= 14 ? 'Smallest text size' : 'Decrease text size'}
-                  onClick={() => setFontSize((n) => Math.max(14, n - 2))}
-                  aria-label="Decrease text size"
-                >
-                  A−
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={fontSize >= 28}
-                  title={fontSize >= 28 ? 'Largest text size' : 'Increase text size'}
-                  onClick={() => setFontSize((n) => Math.min(28, n + 2))}
-                  aria-label="Increase text size"
-                >
-                  A+
-                </Button>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={entries.length === 0 && historyItems.length === 0}
-              title={
-                entries.length === 0 && historyItems.length === 0
-                  ? 'Nothing to clear yet'
-                  : 'Clear both transcript panels'
-              }
-              onClick={() => {
-                if (entries.length === 0 && historyItems.length === 0) return;
-                setConfirmClear(true);
-              }}
-            >
-              Clear both
-            </Button>
-          </div>
-          <DualTranscriptPanel
-            items={transcriptItems}
-            sourceLanguageName={sourceLabelName}
-            targetLanguageName={targetLabelName}
-            sourceLangCode={sourceLang}
-            targetLangCode={targetLang}
-            fontSize={fontSize}
-            empty={
-              <div className="transcript-empty">
-                {sessionActive
+          <div className="transcript-chrome">
+            <DualTranscriptPanel
+              items={transcriptItems}
+              sourceLanguageName={sourceLabelName}
+              targetLanguageName={targetLabelName}
+              sourceLangCode={sourceLang}
+              targetLangCode={targetLang}
+              fontSize={fontSize}
+              emptyOriginal={
+                sessionActive
                   ? state === 'connecting' || state === 'reconnecting'
-                    ? 'Connecting… translation starts when the session is ready.'
+                    ? 'Connecting… speech will appear here when ready.'
+                    : state === 'paused'
+                      ? 'Paused — resume to continue capturing speech.'
+                      : 'Listening… your captured speech appears here.'
+                  : hasSource
+                    ? 'Audio ready — your captured speech appears here.'
+                    : 'Your captured speech appears here.'
+              }
+              emptyTranslation={
+                sessionActive
+                  ? state === 'connecting' || state === 'reconnecting'
+                    ? 'Connecting… translation will appear here when ready.'
                     : state === 'paused'
                       ? 'Paused — resume to continue translating.'
-                      : 'Listening for speech… paragraphs appear as they are recognized and translated.'
+                      : 'Listening… your translation appears here.'
                   : hasSource
-                    ? 'Audio ready — not translating'
-                    : 'Choose languages and an audio source, then start translation'}
-              </div>
-            }
-          />
+                    ? 'Audio ready — your translation appears here.'
+                    : 'Your translation appears here.'
+              }
+              toolbar={
+                <>
+                  <div className="font-size-controls" role="group" aria-label="Text size">
+                    <span className="font-size-label">Text size</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="session-control-icon"
+                      disabled={fontSize <= 14}
+                      title={fontSize <= 14 ? 'Smallest text size' : 'Decrease text size'}
+                      onClick={() => setFontSize((n) => Math.max(14, n - 2))}
+                      aria-label="Decrease text size"
+                    >
+                      A−
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="session-control-icon"
+                      disabled={fontSize >= 28}
+                      title={fontSize >= 28 ? 'Largest text size' : 'Increase text size'}
+                      onClick={() => setFontSize((n) => Math.min(28, n + 2))}
+                      aria-label="Increase text size"
+                    >
+                      A+
+                    </Button>
+                  </div>
+                  {hasTranscript ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="session-control"
+                      title="Clear both transcript panels"
+                      onClick={() => setConfirmClear(true)}
+                    >
+                      <EraserIcon className="size-4" aria-hidden />
+                      Clear both
+                    </Button>
+                  ) : null}
+                </>
+              }
+            />
+          </div>
         </section>
       </div>
 

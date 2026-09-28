@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { CheckIcon, ChevronsUpDownIcon } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronsUpDownIcon } from 'lucide-react';
 import type { LanguageInfo } from '../lib/api';
 import { Button } from './ui/button';
 import {
@@ -38,19 +38,32 @@ export function LanguageCombobox({
 
   const labeled = useMemo(
     () =>
-      options.map((code) => ({
-        code,
-        name: languages.find((l) => l.code === code)?.name ?? code,
-      })),
+      options
+        .map((code) => ({
+          code,
+          name: languages.find((l) => l.code === code)?.name ?? code,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
     [options, languages],
   );
 
   const selected = labeled.find((o) => o.code === value);
   const noOptions = options.length === 0;
+  const labelId = `lang-label-${label.replace(/\s+/g, '-').toLowerCase()}`;
+
+  useEffect(() => {
+    if (!open) return;
+    const id = window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>('[data-slot="command-item"][data-checked="true"]')
+        ?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [open, value]);
 
   return (
-    <div className={cn('lang-combobox', compact ? 'min-w-[7.5rem]' : 'grid min-w-[150px] flex-1 gap-1.5')}>
-      <span className="sr-only" id={`lang-label-${label}`}>
+    <div className={cn('lang-combobox', compact && 'lang-combobox--compact')}>
+      <span className="lang-combobox-label" id={labelId}>
         {label}
       </span>
       <Popover open={open} onOpenChange={setOpen}>
@@ -60,7 +73,7 @@ export function LanguageCombobox({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            aria-labelledby={`lang-label-${label}`}
+            aria-labelledby={labelId}
             disabled={disabled || noOptions}
             title={
               title ??
@@ -71,15 +84,15 @@ export function LanguageCombobox({
                   : label)
             }
             className={cn(
-              'justify-between font-semibold',
-              compact ? 'h-8 max-w-[10rem] px-2.5 text-sm' : 'h-10 w-full',
+              'session-control justify-between font-semibold',
+              compact ? 'min-w-[8.5rem] max-w-[11rem] px-3' : 'w-full',
             )}
           >
             <span className="truncate">{selected?.name ?? 'Select'}</span>
-            <ChevronsUpDownIcon className="size-3.5 shrink-0 opacity-50" />
+            <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-64 p-0" align="start">
+        <PopoverContent className="lang-popover w-[17.5rem] p-0" align="start">
           <Command>
             <CommandInput placeholder="Search languages…" />
             <CommandList>
@@ -90,19 +103,14 @@ export function LanguageCombobox({
                     key={opt.code}
                     value={`${opt.name} ${opt.code}`}
                     data-checked={opt.code === value || undefined}
+                    className="lang-option"
                     onSelect={() => {
                       onChange(opt.code);
                       setOpen(false);
                     }}
                   >
-                    <span className="truncate">{opt.name}</span>
-                    <span className="text-muted-foreground ml-2 text-xs uppercase">{opt.code}</span>
-                    <CheckIcon
-                      className={cn(
-                        'ml-auto size-4',
-                        opt.code === value ? 'opacity-100' : 'opacity-0',
-                      )}
-                    />
+                    <span className="lang-option-name">{opt.name}</span>
+                    <span className="lang-option-code">{opt.code}</span>
                   </CommandItem>
                 ))}
               </CommandGroup>

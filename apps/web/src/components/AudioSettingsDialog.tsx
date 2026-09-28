@@ -136,7 +136,7 @@ export function AudioSettingsDialog({
         <Button
           type="button"
           variant="outline"
-          size="sm"
+          className="session-control"
           disabled={!enabled}
           title={enabled ? 'Audio settings' : 'Enable Text + voice to adjust audio'}
           aria-label="Audio settings"

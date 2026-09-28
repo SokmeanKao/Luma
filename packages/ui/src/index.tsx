@@ -25,10 +25,23 @@ export function PrivacyLabel() {
   );
 }
 
-export function StatusLine({ children }: { children: ReactNode }) {
+export function StatusLine({
+  children,
+  indicator,
+  tone = 'idle',
+}: {
+  children: ReactNode;
+  /** Visual status mark (wave bars, icon). Replaces the old status dot. */
+  indicator?: ReactNode;
+  tone?: 'idle' | 'listening' | 'paused' | 'error' | 'connecting' | 'ready';
+}) {
   return (
-    <div className="status-line" role="status" aria-live="polite">
-      <span className="status-dot" aria-hidden />
+    <div className={`status-line status-line--${tone}`} role="status" aria-live="polite">
+      {indicator ? (
+        <span className="status-indicator" aria-hidden>
+          {indicator}
+        </span>
+      ) : null}
       <span>{children}</span>
     </div>
   );
@@ -195,14 +208,13 @@ function joinPanelText(
 
 function CopyPanelButton({ label, text }: { label: string; text: string }) {
   const [copied, setCopied] = useState(false);
-  const empty = !text.trim();
+  if (!text.trim()) return null;
 
   return (
     <button
       type="button"
       className="dual-copy-btn"
-      disabled={empty}
-      title={empty ? 'Nothing to copy yet' : label}
+      title={label}
       aria-label={copied ? `${label} — copied` : label}
       onClick={() => {
         void (async () => {
@@ -229,7 +241,10 @@ export function DualTranscriptPanel({
   sourceLangCode,
   targetLangCode,
   fontSize,
+  emptyOriginal,
+  emptyTranslation,
   empty,
+  toolbar,
 }: {
   items: TranscriptItem[];
   sourceLanguageName: string;
@@ -237,7 +252,14 @@ export function DualTranscriptPanel({
   sourceLangCode: string;
   targetLangCode: string;
   fontSize: number;
-  empty: ReactNode;
+  /** Preferred empty copy for the Original panel. */
+  emptyOriginal?: ReactNode;
+  /** Preferred empty copy for the Translation panel. */
+  emptyTranslation?: ReactNode;
+  /** @deprecated Prefer emptyOriginal / emptyTranslation */
+  empty?: ReactNode;
+  /** Optional chrome above the two panels (text size, clear). */
+  toolbar?: ReactNode;
 }) {
   const entries = items.filter((i): i is { kind: 'entry'; entry: TranscriptEntryView } => i.kind === 'entry');
   const dividers = items.filter((i): i is { kind: 'divider'; id: string; label: string } => i.kind === 'divider');
@@ -246,9 +268,12 @@ export function DualTranscriptPanel({
   const emptyBoth = entries.length === 0 && dividers.length === 0;
   const originalText = joinPanelText(items, 'original');
   const translationText = joinPanelText(items, 'translation');
+  const originalEmpty = emptyOriginal ?? empty;
+  const translationEmpty = emptyTranslation ?? empty;
 
   return (
     <div className="dual-transcript" style={{ ['--subtitle-size' as string]: `${fontSize}px` }}>
+      {toolbar ? <div className="dual-transcript-toolbar">{toolbar}</div> : null}
       <div className="dual-transcript-cols">
         <section className="dual-col dual-col-original" aria-label={`Original ${sourceLanguageName}`}>
           <header className="dual-col-head">
@@ -264,7 +289,9 @@ export function DualTranscriptPanel({
             onScroll={left.onScroll}
             tabIndex={0}
           >
-            {emptyBoth ? empty : null}
+            {emptyBoth ? (
+              <div className="transcript-empty transcript-empty--panel">{originalEmpty}</div>
+            ) : null}
             {items.map((item) => {
               if (item.kind === 'divider') {
                 return (
@@ -307,7 +334,9 @@ export function DualTranscriptPanel({
             onScroll={right.onScroll}
             tabIndex={0}
           >
-            {emptyBoth ? <div className="transcript-empty dual-col-empty-spacer" aria-hidden /> : null}
+            {emptyBoth ? (
+              <div className="transcript-empty transcript-empty--panel">{translationEmpty}</div>
+            ) : null}
             {items.map((item) => {
               if (item.kind === 'divider') {
                 return (
@@ -345,7 +374,8 @@ export function DualTranscriptPanel({
           sourceLangCode={sourceLangCode}
           targetLangCode={targetLangCode}
           fontSize={fontSize}
-          empty={empty}
+          emptyOriginal={originalEmpty}
+          emptyTranslation={translationEmpty}
           originalText={originalText}
           translationText={translationText}
         />
@@ -361,7 +391,8 @@ function DualTranscriptStacked({
   sourceLangCode,
   targetLangCode,
   fontSize,
-  empty,
+  emptyOriginal,
+  emptyTranslation,
   originalText,
   translationText,
 }: {
@@ -371,7 +402,8 @@ function DualTranscriptStacked({
   sourceLangCode: string;
   targetLangCode: string;
   fontSize: number;
-  empty: ReactNode;
+  emptyOriginal?: ReactNode;
+  emptyTranslation?: ReactNode;
   originalText: string;
   translationText: string;
 }) {
@@ -398,7 +430,9 @@ function DualTranscriptStacked({
           onScroll={left.onScroll}
           tabIndex={0}
         >
-          {emptyBoth ? empty : null}
+          {emptyBoth ? (
+            <div className="transcript-empty transcript-empty--panel">{emptyOriginal}</div>
+          ) : null}
           {items.map((item) => {
             if (item.kind === 'divider') {
               return (
@@ -442,6 +476,9 @@ function DualTranscriptStacked({
           onScroll={right.onScroll}
           tabIndex={0}
         >
+          {emptyBoth ? (
+            <div className="transcript-empty transcript-empty--panel">{emptyTranslation}</div>
+          ) : null}
           {items.map((item) => {
             if (item.kind === 'divider') {
               return (
@@ -479,6 +516,7 @@ export function SessionControls({
   onStop,
   primaryDisabled,
   stopDisabled,
+  showStop = true,
   timerLabel,
   primaryAction,
   stopAction,
@@ -488,6 +526,8 @@ export function SessionControls({
   onStop: () => void;
   primaryDisabled?: boolean;
   stopDisabled: boolean;
+  /** When false, Stop is omitted entirely (pre-session). */
+  showStop?: boolean;
   timerLabel?: string;
   /** Injected primary control; falls back to a native button for demos/tests. */
   primaryAction?: ReactNode;
@@ -511,11 +551,13 @@ export function SessionControls({
         <span />
       )}
       <div className="session-actions">
-        {stopAction ?? (
-          <button type="button" className="btn btn-ghost" onClick={onStop} disabled={stopDisabled}>
-            Stop
-          </button>
-        )}
+        {showStop
+          ? (stopAction ?? (
+              <button type="button" className="btn btn-ghost" onClick={onStop} disabled={stopDisabled}>
+                Stop
+              </button>
+            ))
+          : null}
         {primaryAction ?? (
           <button
             type="button"

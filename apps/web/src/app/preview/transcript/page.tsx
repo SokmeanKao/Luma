@@ -1,9 +1,19 @@
 'use client';
 
-import { DualTranscriptPanel, Brand, PrivacyLabel, type TranscriptItem } from '@luma/ui';
+import { DualTranscriptPanel, Brand, PrivacyLabel, StatusLine, type TranscriptItem } from '@luma/ui';
+import {
+  ArrowLeftRightIcon,
+  AudioLinesIcon,
+  EraserIcon,
+  PauseIcon,
+  PlayIcon,
+  RefreshCwIcon,
+  SquareIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { AudioSettingsDialog } from '@/components/AudioSettingsDialog';
+import { StatusIndicator, statusToneFromState } from '@/components/StatusIndicator';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +24,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useState } from 'react';
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useMemo, useState } from 'react';
 
 const FIXTURE: TranscriptItem[] = [
   {
@@ -65,33 +77,54 @@ const FIXTURE: TranscriptItem[] = [
         'So today we want to verify the side-by-side continuous paragraph layout for original and translation. If you have any questions…',
     },
   },
-  {
-    kind: 'entry',
-    entry: {
-      segmentId: 'p4',
-      timeLabel: '',
-      showOriginal: true,
-      fontSize: 18,
-      final: true,
-      sourceLang: 'km',
-      targetLang: 'en',
-      originalText:
-        'យើងចង់ធានាថាអត្ថបទខ្មែរអានបានស្រួលក្នុងបន្ទាត់វែងៗ ដោយរក្សាគម្លាតបន្ទាត់សមរម្យ និងពុម្ពអក្សរដែលស័ក្តិសម។',
-      translatedText:
-        'We want to ensure long Khmer lines stay readable with comfortable line spacing and suitable font fallbacks.',
-    },
-  },
 ];
 
-export default function TranscriptPreviewPage() {
+type PreviewState = 'empty' | 'ready' | 'listening' | 'paused' | 'error';
+
+function PreviewInner() {
+  const params = useSearchParams();
+  const state = (params.get('state') as PreviewState) || 'listening';
   const [voiceVolume, setVoiceVolume] = useState(0.85);
   const [voiceMuted, setVoiceMuted] = useState(false);
   const [originalVolume, setOriginalVolume] = useState(1);
   const [duckOriginal, setDuckOriginal] = useState(true);
   const [duckLevel, setDuckLevel] = useState(0.2);
-  const [items, setItems] = useState(FIXTURE);
+  const [items, setItems] = useState(() =>
+    state === 'empty' || state === 'ready' || state === 'error' ? [] : FIXTURE,
+  );
   const [confirmClear, setConfirmClear] = useState(false);
   const [fontSize, setFontSize] = useState(18);
+
+  const hasSource = state !== 'empty';
+  const voiceSafe = state !== 'empty';
+  const showStop = state === 'listening' || state === 'paused' || state === 'error';
+  const status =
+    state === 'empty'
+      ? 'Choose languages and an audio source'
+      : state === 'ready'
+        ? 'Audio ready — not translating'
+        : state === 'paused'
+          ? 'Paused'
+          : state === 'error'
+            ? 'Something went wrong'
+            : 'Listening';
+  const primary =
+    state === 'listening' ? 'Pause' : state === 'paused' ? 'Resume' : hasSource ? 'Start translation' : 'Choose audio source';
+  const primaryIcon =
+    primary === 'Pause' ? (
+      <PauseIcon className="size-4" aria-hidden />
+    ) : primary === 'Resume' || primary === 'Start translation' ? (
+      <PlayIcon className="size-4" aria-hidden />
+    ) : (
+      <AudioLinesIcon className="size-4" aria-hidden />
+    );
+  const stageClass = useMemo(() => {
+    const bits = ['stage', 'stage--live'];
+    if (state === 'listening') bits.push('is-listening', 'is-active');
+    if (state === 'paused') bits.push('is-paused', 'is-active');
+    if (state === 'error') bits.push('is-error');
+    return bits.join(' ');
+  }, [state]);
 
   return (
     <main className="app-shell app-shell--live">
@@ -100,118 +133,211 @@ export default function TranscriptPreviewPage() {
         <PrivacyLabel />
       </header>
 
-      <div className="stage stage--live is-listening is-active">
+      <div className={stageClass} data-preview-state={state}>
         <section className="session-toolbar" aria-label="Session controls">
           <div className="session-toolbar-row">
             <div className="lang-pair lang-pair--compact" role="group" aria-label="Language pair">
-              <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 font-semibold">
-                Korean
-              </Button>
-              <span className="lang-swap" aria-hidden>
-                ⇄
-              </span>
-              <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 font-semibold">
-                English
-              </Button>
-            </div>
-            <div className="session-source" title="YouTube — Product roadmap review">
-              <div className="session-source-text">
-                <span className="session-source-name">YouTube — Product roadmap review</span>
-                <span className="session-source-detail">Browser tab · original routed through Luma</span>
+              <div className="lang-combobox lang-combobox--compact">
+                <span className="lang-combobox-label">From</span>
+                <Button type="button" variant="outline" className="session-control min-w-[8.5rem] justify-between font-semibold">
+                  Korean
+                </Button>
               </div>
-              <Button type="button" variant="outline" size="sm" title="Stop translation to change source">
-                Change
+              <Button type="button" variant="ghost" className="lang-swap session-control-icon shrink-0" aria-label="Swap languages">
+                <ArrowLeftRightIcon className="size-4" aria-hidden />
               </Button>
+              <div className="lang-combobox lang-combobox--compact">
+                <span className="lang-combobox-label">To</span>
+                <Button type="button" variant="outline" className="session-control min-w-[8.5rem] justify-between font-semibold">
+                  English
+                </Button>
+              </div>
             </div>
+
+            <div className={`session-source-slot${hasSource ? ' has-source' : ''}`}>
+              {hasSource ? (
+                <div
+                  className="session-source-card"
+                  title="YouTube — Product roadmap review — Browser tab · original routed through Luma"
+                >
+                  <AudioLinesIcon className="session-source-card-icon size-3.5" aria-hidden />
+                  <div className="session-source-text">
+                    <span className="session-source-name">YouTube — Product roadmap review</span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="session-source-change"
+                    title="Change audio source"
+                    aria-label="Change audio source"
+                  >
+                    <RefreshCwIcon className="size-3.5" aria-hidden />
+                  </Button>
+                </div>
+              ) : (
+                <div className="session-source-placeholder" aria-hidden>
+                  <span className="session-source-placeholder-label">
+                    <AudioLinesIcon className="size-3.5" aria-hidden />
+                    Audio source
+                  </span>
+                  <span className="session-source-placeholder-hint">Not chosen yet</span>
+                </div>
+              )}
+            </div>
+
             <div className="session-output">
-              <ToggleGroup type="single" value="text-voice" variant="outline" spacing={0} size="sm">
-                <ToggleGroupItem value="text" className="px-2.5">
-                  Text
-                </ToggleGroupItem>
-                <ToggleGroupItem value="text-voice" className="px-2.5">
-                  Text + voice
-                </ToggleGroupItem>
-              </ToggleGroup>
-              <AudioSettingsDialog
-                enabled
-                voiceVolume={voiceVolume}
-                voiceMuted={voiceMuted}
-                originalVolume={originalVolume}
-                duckOriginal={duckOriginal}
-                duckLevel={duckLevel}
-                canDuckOriginal
-                onVoiceVolume={setVoiceVolume}
-                onVoiceMuted={setVoiceMuted}
-                onOriginalVolume={setOriginalVolume}
-                onDuckOriginal={setDuckOriginal}
-                onDuckLevel={setDuckLevel}
-              />
+              <div className="session-output-modes">
+                <ToggleGroup type="single" value={voiceSafe ? 'text-voice' : 'text'} variant="outline" spacing={0}>
+                  <ToggleGroupItem value="text" className="session-control px-3.5 text-sm">
+                    Text
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="text-voice"
+                    className="session-control px-3.5 text-sm"
+                    disabled={!voiceSafe}
+                    title={
+                      voiceSafe
+                        ? 'Play translated speech with subtitles'
+                        : 'Choose a Chrome tab (Teams / YouTube) with Share tab audio. Window or entire-screen capture can’t use Text + voice — Luma would hear its own speech.'
+                    }
+                  >
+                    Text + voice
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                {!voiceSafe ? (
+                  <p
+                    className="session-help"
+                    role="note"
+                    title="Choose a Chrome tab (Teams / YouTube) with Share tab audio. Window or entire-screen capture can’t use Text + voice — Luma would hear its own speech."
+                  >
+                    Needs a Chrome tab + Share tab audio.
+                  </p>
+                ) : null}
+              </div>
+              {voiceSafe ? (
+                <AudioSettingsDialog
+                  enabled
+                  voiceVolume={voiceVolume}
+                  voiceMuted={voiceMuted}
+                  originalVolume={originalVolume}
+                  duckOriginal={duckOriginal}
+                  duckLevel={duckLevel}
+                  canDuckOriginal={voiceSafe}
+                  onVoiceVolume={setVoiceVolume}
+                  onVoiceMuted={setVoiceMuted}
+                  onOriginalVolume={setOriginalVolume}
+                  onDuckOriginal={setDuckOriginal}
+                  onDuckLevel={setDuckLevel}
+                />
+              ) : null}
             </div>
           </div>
+
           <div className="session-toolbar-row session-toolbar-row--actions">
-            <div className="status-line" role="status">
-              <span className="status-dot" aria-hidden />
-              <span>Listening</span>
-            </div>
-            <span className="session-timer">01:24</span>
+            <StatusLine
+              tone={statusToneFromState(state, hasSource)}
+              indicator={
+                <StatusIndicator
+                  tone={statusToneFromState(state, hasSource)}
+                  activity={state === 'listening' ? 0.55 : 0}
+                />
+              }
+            >
+              {status}
+            </StatusLine>
+            {state === 'listening' || state === 'paused' ? (
+              <span className="session-timer">01:24</span>
+            ) : null}
             <div className="session-actions">
-              <Button type="button" variant="outline" size="sm">
-                Stop
-              </Button>
-              <Button type="button" className="session-primary">
-                Pause
+              {showStop ? (
+                <Button type="button" variant="outline" className="session-control">
+                  <SquareIcon className="size-3.5 fill-current" aria-hidden />
+                  Stop
+                </Button>
+              ) : null}
+              <Button type="button" className="session-primary session-control">
+                {primaryIcon}
+                {primary}
               </Button>
             </div>
           </div>
+
+          {state === 'error' ? (
+            <Alert variant="destructive">
+              <AlertTitle>Something went wrong</AlertTitle>
+              <AlertDescription>The shared tab closed. Translation stopped.</AlertDescription>
+              <AlertAction>
+                <Button type="button" variant="outline" className="session-control">
+                  Choose source again
+                </Button>
+              </AlertAction>
+            </Alert>
+          ) : null}
         </section>
 
         <section className="subtitle-stage transcript-stage" aria-label="Live transcript">
-          <div className="subtitle-stage-head">
-            <div className="subtitle-toggles">
-              <span className="subtitle-pair">Korean → English</span>
-              <div className="font-size-controls" role="group" aria-label="Text size">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={fontSize <= 14}
-                  onClick={() => setFontSize((n) => Math.max(14, n - 2))}
-                  aria-label="Decrease text size"
-                >
-                  A−
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={fontSize >= 28}
-                  onClick={() => setFontSize((n) => Math.min(28, n + 2))}
-                  aria-label="Increase text size"
-                >
-                  A+
-                </Button>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={items.length === 0}
-              title={items.length === 0 ? 'Nothing to clear yet' : 'Clear both transcript panels'}
-              onClick={() => setConfirmClear(true)}
-            >
-              Clear both
-            </Button>
+          <div className="transcript-chrome">
+            <DualTranscriptPanel
+              items={items}
+              sourceLanguageName="Korean"
+              targetLanguageName="English"
+              sourceLangCode="ko"
+              targetLangCode="en"
+              fontSize={fontSize}
+              emptyOriginal={
+                state === 'paused'
+                  ? 'Paused — resume to continue capturing speech.'
+                  : hasSource
+                    ? 'Audio ready — your captured speech appears here.'
+                    : 'Your captured speech appears here.'
+              }
+              emptyTranslation={
+                state === 'paused'
+                  ? 'Paused — resume to continue translating.'
+                  : hasSource
+                    ? 'Audio ready — your translation appears here.'
+                    : 'Your translation appears here.'
+              }
+              toolbar={
+                <>
+                  <div className="font-size-controls" role="group" aria-label="Text size">
+                    <span className="font-size-label">Text size</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="session-control-icon"
+                      disabled={fontSize <= 14}
+                      onClick={() => setFontSize((n) => Math.max(14, n - 2))}
+                      aria-label="Decrease text size"
+                    >
+                      A−
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="session-control-icon"
+                      disabled={fontSize >= 28}
+                      onClick={() => setFontSize((n) => Math.min(28, n + 2))}
+                      aria-label="Increase text size"
+                    >
+                      A+
+                    </Button>
+                  </div>
+                  {items.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="session-control"
+                      onClick={() => setConfirmClear(true)}
+                    >
+                      <EraserIcon className="size-4" aria-hidden />
+                      Clear both
+                    </Button>
+                  ) : null}
+                </>
+              }
+            />
           </div>
-          <DualTranscriptPanel
-            items={items}
-            sourceLanguageName="Korean"
-            targetLanguageName="English"
-            sourceLangCode="ko"
-            targetLangCode="en"
-            fontSize={fontSize}
-            empty={<div className="transcript-empty">No transcript</div>}
-          />
         </section>
       </div>
 
@@ -238,5 +364,13 @@ export default function TranscriptPreviewPage() {
         </AlertDialogContent>
       </AlertDialog>
     </main>
+  );
+}
+
+export default function TranscriptPreviewPage() {
+  return (
+    <Suspense fallback={<main className="app-shell">Loading…</main>}>
+      <PreviewInner />
+    </Suspense>
   );
 }

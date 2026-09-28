@@ -5,7 +5,7 @@ test.describe('transcript actions', () => {
   test('copy original shows brief success feedback', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.setViewportSize({ width: 1366, height: 768 });
-    await page.goto('/preview/transcript');
+    await page.goto('/preview/transcript?state=listening');
 
     const original = page.getByRole('region', { name: /Original Korean/i });
     await original.getByRole('button', { name: 'Copy original' }).click();
@@ -17,7 +17,7 @@ test.describe('transcript actions', () => {
 
   test('clear both asks for confirmation when text exists', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 768 });
-    await page.goto('/preview/transcript');
+    await page.goto('/preview/transcript?state=listening');
 
     await page.getByRole('button', { name: 'Clear both' }).click();
     const dialog = page.getByRole('alertdialog');
@@ -30,7 +30,7 @@ test.describe('transcript actions', () => {
 
   test('200% zoom keeps toolbar usable without horizontal page overflow', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 768 });
-    await page.goto('/preview/transcript');
+    await page.goto('/preview/transcript?state=listening');
     await page.evaluate(() => {
       document.documentElement.style.zoom = '2';
     });

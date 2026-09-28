@@ -66,7 +66,7 @@ Dropdown options come only from `supportedPairs` in `/api/v1/capabilities`. Prov
 
 ## Verdict
 
-- F-01: **pending** until English text from Korean audio is recorded above
+- F-01: **partial** — mint verified; Korean TTS PCM → English text recorded in the table above. **Browser tab capture E2E still pending** (not equivalent to PCM smoke).
 - F-02: **pending** until filter matrix filled
 - F-03: mint path exercised (200 OK); not sufficient alone
 - F-04: still pending Chrome/Edge capture matrix

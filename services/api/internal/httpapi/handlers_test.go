@@ -41,7 +41,7 @@ func TestCapabilities_ReportsMissingEligibility(t *testing.T) {
 	var body capabilitiesResponse
 	_ = json.Unmarshal(rr.Body.Bytes(), &body)
 	if body.ProviderAvailable {
-		t.Fatal("providerAvailable must stay false")
+		t.Fatal("providerAvailable must stay false without eligibility")
 	}
 	if body.LiveTestAllowed {
 		t.Fatal("liveTestAllowed should be false without eligibility")
@@ -77,6 +77,11 @@ func TestCapabilities_SetsCORSForAllowedOrigin(t *testing.T) {
 	}
 	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
 		t.Fatalf("ACAO=%q", got)
+	}
+	var body capabilitiesResponse
+	_ = json.Unmarshal(rr.Body.Bytes(), &body)
+	if !body.ProviderAvailable || !body.LiveTestAllowed {
+		t.Fatalf("expected providerAvailable and liveTestAllowed when mint+eligibility are set")
 	}
 }
 

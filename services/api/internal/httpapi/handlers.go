@@ -137,7 +137,7 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		DefaultTargetLanguage:        defTgt,
 		SourceLanguages:              languages.SourceCodes(),
 		TargetLanguages:              languages.TargetCodes(),
-		ProviderAvailable:            false, // product Live stays unverified until evidence recorded
+		ProviderAvailable:            mintOK && s.cfg.FreeTierEligibilityConfirmed,
 		ModelConfigured:              strings.TrimSpace(s.cfg.GeminiModel) != "",
 		MintEnabled:                  mintOK,
 		FreeTierEligibilityConfirmed: s.cfg.FreeTierEligibilityConfirmed,

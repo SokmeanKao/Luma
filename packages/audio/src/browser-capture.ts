@@ -55,7 +55,8 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
     }
 
     const constraints: DisplayMediaOpts = {
-      video: true,
+      // Prefer the Chrome Tab pane so Text + voice can be enabled safely.
+      video: { displaySurface: 'browser' },
       audio: audioConstraints as MediaTrackConstraints,
       selfBrowserSurface: 'exclude',
       systemAudio: 'exclude',
