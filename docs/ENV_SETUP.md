@@ -42,7 +42,7 @@ go run ./cmd/server
 | `FREE_TIER_ELIGIBILITY_CONFIRMED` | Default `false` | Must be `true` only after you verify free-tier model availability in AI Studio / rate limits. Live test refuses mint/audio otherwise. |
 | `TARGET_LANGUAGE_CODE` | Default `en` | Locked into ephemeral token translation constraints. |
 | `BIND_ADDR` | Default `127.0.0.1:8080` | Loopback bind address. |
-| `ALLOWED_ORIGINS` | Default `http://localhost:3000` | Exact Origin allowlist (comma-separated). |
+| `ALLOWED_ORIGINS` | Default `http://localhost:3000,http://127.0.0.1:3000` | Exact Origin allowlist (comma-separated). Include both hostnames if you open either URL. |
 | `DEMO_MODE` | Optional | Ops flag (`true`/`false`). Informational for Go; does not invent quotas. Set `false` for real translation runs. |
 | `NEXT_PUBLIC_LUMA_MODE` | `live` \| `capture` \| `demo` | Public UI mode. **`live`** (and `capture`) open the real capture→Gemini workspace. **`demo`** opens sample subtitles only. Invalid values fall back to `live`. |
 | `NEXT_PUBLIC_API_BASE` | `http://127.0.0.1:8080` | Loopback API base (plain URL text). |

@@ -771,13 +771,17 @@ export function LiveWorkspace() {
               </div>
               {!canStart && !sessionActive ? (
                 <p className="empty-hint">
-                  {!pairOk
-                    ? 'Pick a verified language pair to continue.'
-                    : !hasSource
-                      ? 'Audio is not shared yet — Start stays off until a tab is ready.'
-                      : !caps?.liveTestAllowed
-                        ? 'Live translation is blocked until free-tier eligibility is confirmed.'
-                        : 'Start is available when languages and audio are ready.'}
+                  {capsError
+                    ? 'Translation service is unreachable — Start stays off until the API responds.'
+                    : !caps
+                      ? 'Loading language options…'
+                      : !pairOk
+                        ? 'Pick a verified language pair to continue.'
+                        : !hasSource
+                          ? 'Audio is not shared yet — Start stays off until a tab is ready.'
+                          : !caps.liveTestAllowed
+                            ? 'Live translation is blocked until free-tier eligibility is confirmed.'
+                            : 'Start is available when languages and audio are ready.'}
                 </p>
               ) : hasSource && !sessionActive ? (
                 <p className="empty-hint">Audio ready — not translating until you press Start.</p>
@@ -795,9 +799,39 @@ export function LiveWorkspace() {
             </div>
           ) : null}
           {capsError ? (
-            <p className="empty-hint" role="status">
-              Translation service is unreachable. Start the Go API, then refresh.
-            </p>
+            <div className="error-banner" role="alert">
+              <p>Translation service is unreachable. Start the Go API, then refresh.</p>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setCapsError(null);
+                  void fetchCapabilities()
+                    .then((c) => {
+                      setCaps(c);
+                      const stored = loadStoredPair();
+                      const pairs = c.supportedPairs ?? [];
+                      let next: LanguagePair = {
+                        source: c.defaultSourceLanguage || 'ko',
+                        target: c.defaultTargetLanguage || 'en',
+                      };
+                      if (stored && pairAllowed(pairs, stored.source, stored.target)) {
+                        next = stored;
+                      } else if (!pairAllowed(pairs, next.source, next.target) && pairs[0]) {
+                        next = { source: pairs[0].source, target: pairs[0].target };
+                      }
+                      setSourceLang(next.source);
+                      setTargetLang(next.target);
+                      storePair(next);
+                    })
+                    .catch((e) =>
+                      setCapsError(e instanceof Error ? e.message : 'capabilities failed'),
+                    );
+                }}
+              >
+                Retry connection
+              </button>
+            </div>
           ) : null}
         </section>
 
