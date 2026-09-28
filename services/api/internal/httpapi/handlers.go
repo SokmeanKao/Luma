@@ -32,11 +32,16 @@ type healthResponse struct {
 }
 
 type capabilitiesResponse struct {
-	SourceLanguages   []string `json:"sourceLanguages"`
-	TargetLanguages   []string `json:"targetLanguages"`
-	ProviderAvailable bool     `json:"providerAvailable"`
-	ModelConfigured   bool     `json:"modelConfigured"`
-	MintEnabled       bool     `json:"mintEnabled"`
+	SourceLanguages              []string `json:"sourceLanguages"`
+	TargetLanguages              []string `json:"targetLanguages"`
+	ProviderAvailable            bool     `json:"providerAvailable"`
+	ModelConfigured              bool     `json:"modelConfigured"`
+	MintEnabled                  bool     `json:"mintEnabled"`
+	FreeTierEligibilityConfirmed bool     `json:"freeTierEligibilityConfirmed"`
+	Model                        string   `json:"model,omitempty"`
+	LiveTestAllowed              bool     `json:"liveTestAllowed"`
+	MissingEligibilityEvidence   []string `json:"missingEligibilityEvidence,omitempty"`
+	LanguageFilterStatus         string   `json:"languageFilterStatus"`
 }
 
 type liveTokenRequest struct {
@@ -50,6 +55,9 @@ type liveTokenResponse struct {
 	Model               string `json:"model"`
 	APIVersion          string `json:"apiVersion"`
 	WebsocketURL        string `json:"websocketUrl"`
+	TargetLanguageCode  string `json:"targetLanguageCode"`
+	EchoTargetLanguage  bool   `json:"echoTargetLanguage"`
+	SetupLocked         bool   `json:"setupLocked"`
 }
 
 type googleAuthTokenResponse struct {
@@ -61,7 +69,7 @@ func NewServer(cfg config.Config) *Server {
 		cfg: cfg,
 		mux: http.NewServeMux(),
 		client: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 20 * time.Second,
 		},
 	}
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -78,13 +86,31 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, healthResponse{OK: true})
 }
 
+func (s *Server) missingEligibility() []string {
+	missing := []string{}
+	if !s.cfg.FreeTierEligibilityConfirmed {
+		missing = append(missing,
+			"Set FREE_TIER_ELIGIBILITY_CONFIRMED=true in .env only after you verify in Google AI Studio / rate-limits that gemini-3.5-live-translate-preview (or your GEMINI_MODEL) is available on free tier for this project",
+			"Record model name, project id (not the API key), and observed free-tier limits in docs/feasibility/F01_LIVE_TRANSLATE_EVIDENCE.md",
+		)
+	}
+	return missing
+}
+
 func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
+	missing := s.missingEligibility()
+	mintOK := s.cfg.EnableLiveTokenMint && s.cfg.GeminiAPIKey != ""
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
-		SourceLanguages:   []string{"ko"},
-		TargetLanguages:   []string{"en"},
-		ProviderAvailable: false, // never claim live until F-01/F-03 verified
-		ModelConfigured:   strings.TrimSpace(s.cfg.GeminiModel) != "",
-		MintEnabled:       s.cfg.EnableLiveTokenMint && s.cfg.GeminiAPIKey != "",
+		SourceLanguages:              []string{"ko"},
+		TargetLanguages:              []string{"en"},
+		ProviderAvailable:            false, // product Live stays unverified until evidence recorded
+		ModelConfigured:              strings.TrimSpace(s.cfg.GeminiModel) != "",
+		MintEnabled:                  mintOK,
+		FreeTierEligibilityConfirmed: s.cfg.FreeTierEligibilityConfirmed,
+		Model:                        s.cfg.GeminiModel,
+		LiveTestAllowed:              mintOK && s.cfg.FreeTierEligibilityConfirmed,
+		MissingEligibilityEvidence:   missing,
+		LanguageFilterStatus:         "unverified", // echoTargetLanguage≠Korean-only allowlist
 	})
 }
 
@@ -123,18 +149,21 @@ func (s *Server) handleLiveToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "CONFIGURATION_MISSING", "Live token minting is not configured (GEMINI_MODEL missing)")
 		return
 	}
+	if !s.cfg.FreeTierEligibilityConfirmed {
+		writeErr(w, http.StatusForbidden, "NOT_AUTHORIZED", "Free-tier eligibility not confirmed. Set FREE_TIER_ELIGIBILITY_CONFIRMED=true after AI Studio verification, then restart the API.")
+		return
+	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
 	tokenName, expiresAt, err := s.mintEphemeralToken(ctx)
 	if err != nil {
-		// Never log the API key or token material.
 		writeErr(w, http.StatusBadGateway, "PROVIDER_UNAVAILABLE", "Upstream token mint failed")
 		return
 	}
 
-	apiVersion := "v1alpha"
+	apiVersion := "v1beta"
 	ws := fmt.Sprintf(
 		"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.%s.GenerativeService.BidiGenerateContentConstrained?access_token=%s",
 		apiVersion,
@@ -147,29 +176,51 @@ func (s *Server) handleLiveToken(w http.ResponseWriter, r *http.Request) {
 		Model:               s.cfg.GeminiModel,
 		APIVersion:          apiVersion,
 		WebsocketURL:        ws,
+		TargetLanguageCode:  s.cfg.TargetLanguageCode,
+		EchoTargetLanguage:  false,
+		SetupLocked:         true,
 	})
 }
 
 func (s *Server) mintEphemeralToken(ctx context.Context) (string, time.Time, error) {
-	// Plain token only — do not bake bidiGenerateContentSetup (breaks browser WS auth).
 	expire := time.Now().Add(30 * time.Minute)
 	newSessionExpire := time.Now().Add(2 * time.Minute)
+	modelPath := s.cfg.GeminiModel
+	if !strings.HasPrefix(modelPath, "models/") {
+		modelPath = "models/" + modelPath
+	}
+
+	// Lock Live Translation config server-side (docs: liveConnectConstraints).
+	// echoTargetLanguage=false: stay silent when input is already English — NOT a Korean-only filter.
 	payload := map[string]any{
-		"uses":                1,
-		"expireTime":          expire.UTC().Format(time.RFC3339),
+		"uses":                 1,
+		"expireTime":           expire.UTC().Format(time.RFC3339),
 		"newSessionExpireTime": newSessionExpire.UTC().Format(time.RFC3339),
+		"liveConnectConstraints": map[string]any{
+			"model": modelPath,
+			"config": map[string]any{
+				"responseModalities":       []string{"AUDIO"},
+				"inputAudioTranscription":  map[string]any{},
+				"outputAudioTranscription": map[string]any{},
+				"translationConfig": map[string]any{
+					"targetLanguageCode": s.cfg.TargetLanguageCode,
+					"echoTargetLanguage": false,
+				},
+			},
+		},
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 
-	url := "https://generativelanguage.googleapis.com/v1alpha/auth_tokens?key=" + s.cfg.GeminiAPIKey
+	url := "https://generativelanguage.googleapis.com/v1beta/auth_tokens"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", s.cfg.GeminiAPIKey)
 
 	res, err := s.client.Do(req)
 	if err != nil {

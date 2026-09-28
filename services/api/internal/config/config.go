@@ -8,16 +8,16 @@ import (
 )
 
 type Config struct {
-	BindAddr            string
-	AllowedOrigins      []string
-	GeminiAPIKey        string
-	GeminiModel         string
-	DemoMode            bool
-	EnableLiveTokenMint bool
+	BindAddr                   string
+	AllowedOrigins             []string
+	GeminiAPIKey               string
+	GeminiModel                string
+	DemoMode                   bool
+	EnableLiveTokenMint        bool
+	FreeTierEligibilityConfirmed bool
+	TargetLanguageCode         string
 }
 
-// Load reads process env. Optionally merges key=value pairs from nearby .env
-// files without printing values. Existing process env wins over file values.
 func Load() Config {
 	loadDotEnvFiles()
 	origins := strings.Split(envOr("ALLOWED_ORIGINS", "http://localhost:3000"), ",")
@@ -28,13 +28,17 @@ func Load() Config {
 			cleaned = append(cleaned, o)
 		}
 	}
+	model := envOr("GEMINI_MODEL", "gemini-3.5-live-translate-preview")
+	model = strings.TrimPrefix(model, "models/")
 	return Config{
-		BindAddr:            envOr("BIND_ADDR", "127.0.0.1:8080"),
-		AllowedOrigins:      cleaned,
-		GeminiAPIKey:        os.Getenv("GEMINI_API_KEY"),
-		GeminiModel:         envOr("GEMINI_MODEL", ""),
-		DemoMode:            strings.EqualFold(os.Getenv("DEMO_MODE"), "true"),
-		EnableLiveTokenMint: strings.EqualFold(os.Getenv("ENABLE_LIVE_TOKEN_MINT"), "true"),
+		BindAddr:                     envOr("BIND_ADDR", "127.0.0.1:8080"),
+		AllowedOrigins:               cleaned,
+		GeminiAPIKey:                 os.Getenv("GEMINI_API_KEY"),
+		GeminiModel:                  model,
+		DemoMode:                     strings.EqualFold(os.Getenv("DEMO_MODE"), "true"),
+		EnableLiveTokenMint:          strings.EqualFold(os.Getenv("ENABLE_LIVE_TOKEN_MINT"), "true"),
+		FreeTierEligibilityConfirmed: strings.EqualFold(os.Getenv("FREE_TIER_ELIGIBILITY_CONFIRMED"), "true"),
+		TargetLanguageCode:           envOr("TARGET_LANGUAGE_CODE", "en"),
 	}
 }
 

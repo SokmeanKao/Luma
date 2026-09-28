@@ -1,18 +1,18 @@
 # Feasibility gates
 
-Mock/demo and Capture-test success are **not** live translation evidence.
-
-| Gate | Status | Blocker / notes |
+| Gate | Status | Notes |
 |---|---|---|
-| F-01 Translated text | pending verification | **Not executed** against Gemini in CI. Adapter scaffolding exists; Live UI disabled. Needs credentials + eligibility + live session proof. |
-| F-02 Source-language filtering | pending verification | Unit/mock filter helpers exist. Live Korean/English/other/silence matrix **not executed**. |
-| F-03 Authentication / ephemeral tokens | pending verification | Mint path coded behind `ENABLE_LIVE_TOKEN_MINT=true` + `GEMINI_API_KEY`. Default remains not configured. Live mint **not marked passed**. |
-| F-04 Web capture | pending verification | Capture-test UI ready. **Human Chrome/Edge matrix** in `F04_CAPTURE_EVIDENCE.md` still required to declare capture verified. Does **not** block independent Stage 3 coding. |
-| F-05 Windows capture | pending verification | Electron stub only. |
-| F-06 Quota / session limits | pending verification | No live quota measurement; no fabricated remaining-minutes. |
+| F-01 Translated text | pending verification | Live test wired (capture→PCM→Gemini→output transcripts). **Not marked pass** until English text from Korean audio is recorded in `F01_LIVE_TRANSLATE_EVIDENCE.md`. |
+| F-02 Source-language filtering | unverified | `echoTargetLanguage=false` ≠ Korean-only. Live test labeled accordingly; product Live stays off. |
+| F-03 Ephemeral tokens | implementation ready | v1beta constrained mint; requires `FREE_TIER_ELIGIBILITY_CONFIRMED=true`. Token success ≠ translation success. |
+| F-04 Web capture | pending verification | Manual Chrome/Edge matrix still required (`F04_CAPTURE_EVIDENCE.md`). |
+| F-05 Windows | pending | Electron stub. |
+| F-06 Quota | pending | No live quota numbers claimed. |
 
-## Stage gating (corrected)
+## Modes
 
-- **F-04** blocks declaring **web capture verified**, not all Stage 3 development.
-- **Live mode** stays disabled until required integration gates (token + provider + filtering evidence) pass.
-- Do not mark unexecuted provider tests as passed.
+| Mode | Behavior |
+|---|---|
+| Demo | Mock samples only |
+| Capture test | Real capture, no Gemini |
+| Live test | Dev-only live path; no demo fallback on failure |

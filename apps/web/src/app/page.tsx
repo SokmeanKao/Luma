@@ -16,6 +16,7 @@ import {
   type TranscriptUpdate,
 } from '@luma/translation';
 import { CapturePanel } from '../components/CapturePanel';
+import { LiveTestPanel } from '../components/LiveTestPanel';
 
 type UiMode = 'demo' | 'capture' | 'live';
 
@@ -62,7 +63,7 @@ function statusLabel(state: SessionState): string {
 function pillCopy(mode: UiMode): { demo: boolean; text: string } {
   if (mode === 'demo') return { demo: true, text: 'Interactive demo · no audio captured' };
   if (mode === 'capture') return { demo: true, text: 'Capture test · no Gemini / no translation' };
-  return { demo: false, text: 'Live mode · blocked until gates pass' };
+  return { demo: true, text: 'Live test · filter unverified · no demo fallback' };
 }
 
 export default function HomePage() {
@@ -133,7 +134,6 @@ export default function HomePage() {
   const pill = pillCopy(mode);
 
   function switchMode(next: UiMode) {
-    if (next === 'live') return;
     if (active) {
       void onStop();
     }
@@ -223,13 +223,12 @@ export default function HomePage() {
               [
                 ['demo', 'Demo'],
                 ['capture', 'Capture test'],
-                ['live', 'Live'],
+                ['live', 'Live test'],
               ] as const
             ).map(([id, label]) => (
               <button
                 key={id}
                 type="button"
-                disabled={id === 'live'}
                 onClick={() => switchMode(id)}
                 style={{
                   background: mode === id ? '#fff' : 'none',
@@ -240,7 +239,11 @@ export default function HomePage() {
                   boxShadow: mode === id ? '0 2px 5px #00000009' : undefined,
                   fontWeight: 600,
                 }}
-                title={id === 'live' ? 'Blocked until capture evidence and Gemini gates pass' : undefined}
+                title={
+                  id === 'live'
+                    ? 'Development Live test — English subtitles from Gemini; language filter unverified'
+                    : undefined
+                }
               >
                 {label}
               </button>
@@ -261,10 +264,26 @@ export default function HomePage() {
                 Select a Teams or YouTube tab and enable Share tab audio. Your microphone is never requested.
               </div>
               <p className="real-disabled">
-                Live translation stays disabled until F-01–F-03 and F-04 evidence are recorded.
+                F-04 remains pending until Chrome/Edge results are recorded in docs/feasibility/F04_CAPTURE_EVIDENCE.md.
               </p>
             </section>
             <CapturePanel />
+          </div>
+        ) : mode === 'live' ? (
+          <div className="grid">
+            <section className="card settings">
+              <div className="eyebrow">STAGE 3 · LIVE TEST</div>
+              <h2>Korean audio → English subtitles</h2>
+              <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 0 }}>
+                Uses a temporary credential from the Go API. Permanent key stays server-side. Failures never insert demo
+                samples. Product Live remains unverified until F-01/F-02 evidence is recorded.
+              </p>
+              <div className="notice">
+                <strong>◌ &nbsp; Short Korean sample first</strong>
+                Share a tab with Korean speech and Share tab audio. Record first-subtitle latency in the panel.
+              </div>
+            </section>
+            <LiveTestPanel />
           </div>
         ) : (
           <div className="grid">

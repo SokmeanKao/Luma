@@ -38,7 +38,9 @@ go run ./cmd/server
 |---|---|---|
 | `GEMINI_API_KEY` | For mint attempts | Permanent Google AI Studio / Gemini API key. Server-side only. |
 | `GEMINI_MODEL` | Recommended | Model id string used in capabilities / mint config (must match free-tier eligibility you verify). |
-| `ENABLE_LIVE_TOKEN_MINT` | Default `false` | When `true` **and** key present, Go may call Google’s auth_tokens endpoint. When `false`, returns `CONFIGURATION_MISSING`. |
+| `ENABLE_LIVE_TOKEN_MINT` | Default `false` | When `true` **and** key present, Go may mint ephemeral tokens. |
+| `FREE_TIER_ELIGIBILITY_CONFIRMED` | Default `false` | Must be `true` only after you verify free-tier model availability in AI Studio / rate limits. Live test refuses mint/audio otherwise. |
+| `TARGET_LANGUAGE_CODE` | Default `en` | Locked into ephemeral token translation constraints. |
 | `BIND_ADDR` | Default `127.0.0.1:8080` | Loopback bind address. |
 | `ALLOWED_ORIGINS` | Default `http://localhost:3000` | Exact Origin allowlist (comma-separated). |
 | `DEMO_MODE` | Optional | Informational flag for ops; does not invent quotas. |
