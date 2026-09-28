@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Brand,
+  PrivacyLabel,
   SessionControls,
-  SourceCard,
-  StatusPill,
-  TranscriptList,
+  SourceBar,
+  StatusLine,
+  TranscriptPanel,
   type TranscriptEntryView,
 } from '@luma/ui';
 import {
@@ -33,7 +34,7 @@ function clock(n: number): string {
 function statusCopy(state: SessionState, hasSource: boolean): string {
   switch (state) {
     case 'selecting':
-      return 'Select a tab in the browser dialog…';
+      return 'Choose a source';
     case 'connecting':
       return 'Connecting';
     case 'listening':
@@ -41,23 +42,25 @@ function statusCopy(state: SessionState, hasSource: boolean): string {
     case 'paused':
       return 'Paused';
     case 'reconnecting':
-      return 'Reconnecting';
+      return 'Connecting';
     case 'stopped':
-      return 'Session stopped';
+      return hasSource ? 'Ready' : 'Choose a source';
     case 'quota_exhausted':
       return 'Quota exhausted';
     case 'error':
-      return 'Error';
+      return 'Something went wrong';
     default:
-      return hasSource ? 'Ready · source selected' : 'Ready · select a browser tab with audio';
+      return hasSource ? 'Ready' : 'Choose a source';
   }
 }
+
+type ErrorAction = 'choose-source' | 'retry' | null;
 
 /**
  * Primary Luma web app: native tab picker → PCM → Gemini → English subtitles.
  * Never falls back to demo samples on failure.
  */
-export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
+export function LiveWorkspace() {
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [capsError, setCapsError] = useState<string | null>(null);
   const [state, setState] = useState<SessionState>('idle');
@@ -65,13 +68,14 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
   const [seconds, setSeconds] = useState(0);
   const [level, setLevel] = useState(0);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [errorAction, setErrorAction] = useState<ErrorAction>(null);
   const [sourceLabel, setSourceLabel] = useState('No source selected');
   const [sourceDetail, setSourceDetail] = useState('Browser tab · Share tab audio required');
-  const [sourceKind, setSourceKind] = useState<'tab' | 'system' | null>(null);
   const [hasSource, setHasSource] = useState(false);
-  const [showOriginal, setShowOriginal] = useState(true);
-  const [fontSize, setFontSize] = useState(19);
-  const [metrics, setMetrics] = useState('Waiting for a real Korean speech sample.');
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [fontSize, setFontSize] = useState(20);
+  const [settingsOpen, setSettingsOpen] = useState(true);
+  const [metrics, setMetrics] = useState('');
   const [firstSubtitleMs, setFirstSubtitleMs] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
 
@@ -153,7 +157,6 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
     stopCaptureRef.current = null;
     streamRef.current = null;
     setHasSource(false);
-    setSourceKind(null);
     setSourceLabel('No source selected');
     setSourceDetail('Browser tab · Share tab audio required');
   }
@@ -171,6 +174,7 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
     setStarting(false);
     if (updateUi) {
       setErrorText(null);
+      setErrorAction(null);
     }
   }
 
@@ -186,11 +190,13 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
   }
 
   async function selectAudioSource() {
-    if (starting || state === 'listening' || state === 'paused' || state === 'connecting') {
-      setErrorText('Stop the active session before selecting a new source.');
+    if (starting || state === 'listening' || state === 'paused' || state === 'connecting' || state === 'reconnecting') {
+      setErrorText('Stop the active session before choosing a new source.');
+      setErrorAction(null);
       return;
     }
     setErrorText(null);
+    setErrorAction(null);
     setState('selecting');
 
     // Replace any prior capture first.
@@ -211,9 +217,10 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
             setState('stopped');
             setErrorText(
               wasTranslating
-                ? 'Source ended. Capture and translation stopped. Select a tab again to continue.'
-                : 'Source ended. Select a tab again to continue.',
+                ? 'The shared tab closed. Translation stopped.'
+                : 'The shared tab closed.',
             );
+            setErrorAction('choose-source');
           })();
         },
       });
@@ -221,28 +228,31 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
       streamRef.current = result.stream;
       stopCaptureRef.current = result.stop;
       setHasSource(true);
-      setSourceKind(result.sourceKind);
       setSourceLabel(result.label);
       setSourceDetail(
         result.sourceKind === 'system'
-          ? 'System / screen capture · other apps may be included · microphone not captured'
-          : `Tab capture${result.displaySurface ? ` · ${result.displaySurface}` : ''} · microphone not captured`,
+          ? 'Screen or window · other apps may be included'
+          : 'Browser tab · Share tab audio',
       );
       startActivityMeter(result.stream);
+      setSettingsOpen(false);
       setState('idle');
     } catch (err) {
       releaseCapture();
       if (err instanceof CaptureCancelledError) {
-        setErrorText('Sharing cancelled. No capture started.');
+        setErrorText('Sharing was cancelled. Nothing was captured.');
+        setErrorAction('choose-source');
         setState('idle');
         return;
       }
       if (err instanceof NoAudioTrackError) {
-        setErrorText(err.message);
+        setErrorText('No tab audio was shared. Choose the tab again and enable “Share tab audio”.');
+        setErrorAction('choose-source');
         setState('error');
         return;
       }
       setErrorText(err instanceof Error ? err.message : 'Could not open the browser sharing dialog.');
+      setErrorAction('choose-source');
       setState('error');
     }
   }
@@ -296,23 +306,27 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
     if (!session) return;
 
     if (!stream || !hasSource) {
-      setErrorText('Select an audio source first (browser sharing dialog).');
+      setErrorText('Choose an audio source first.');
+      setErrorAction('choose-source');
       return;
     }
     if (!caps?.liveTestAllowed) {
       setErrorText(
-        'Live translation blocked until free-tier eligibility is confirmed in .env (FREE_TIER_ELIGIBILITY_CONFIRMED=true) and the Go API is restarted. Demo samples will not be shown.',
+        'Live translation isn’t available yet. Confirm free-tier eligibility in .env, then restart the API.',
       );
+      setErrorAction(null);
       return;
     }
 
     setStarting(true);
     setErrorText(null);
+    setErrorAction(null);
     firstSeen.current = false;
     setFirstSubtitleMs(null);
     setEntries([]);
     setSeconds(0);
     setMetrics('Requesting temporary credential…');
+    setSettingsOpen(false);
     setState('connecting');
 
     let token;
@@ -320,7 +334,8 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
       token = await fetchLiveToken();
     } catch (err) {
       const code = (err as { code?: string }).code;
-      setErrorText(`${code ?? 'ERROR'}: ${err instanceof Error ? err.message : 'Token failed'}. No demo fallback.`);
+      setErrorText(`${code ?? 'ERROR'}: ${err instanceof Error ? err.message : 'Could not start a secure session.'}`);
+      setErrorAction('retry');
       setState('error');
       setStarting(false);
       return;
@@ -354,21 +369,24 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
       if (err.code === 'QUOTA_EXHAUSTED') {
         translatingRef.current = false;
         provider.pauseSending();
-        setErrorText(`${err.code}: ${err.message}. Stopped. No paid fallback.`);
+        setErrorText('Translation quota is used up for now. Try again later.');
+        setErrorAction(null);
         setState('quota_exhausted');
         return;
       }
       if (err.code === 'SESSION_EXPIRED' || err.code === 'NETWORK') {
         if (reconnectingRef.current) {
           translatingRef.current = false;
-          setErrorText(`${err.code}: ${err.message}. Reconnect already attempted. No demo fallback.`);
+          setErrorText('The connection dropped and could not be restored.');
+          setErrorAction('retry');
           setState('error');
           return;
         }
         reconnectingRef.current = true;
         setState('reconnecting');
         setMetrics((m) => `${m} · transcript gap (connection dropped)`);
-        setErrorText(`${err.code}: ${err.message}. Reconnecting…`);
+        setErrorText(null);
+        setErrorAction(null);
         void (async () => {
           try {
             provider.pauseSending();
@@ -399,6 +417,7 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
             }
             reconnectingRef.current = false;
             setErrorText(null);
+            setErrorAction(null);
             setMetrics((m) => `${m} · reconnected (gap already marked)`);
             if (session.getState() === 'paused') {
               provider.pauseSending();
@@ -411,14 +430,16 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
             if (activeSessionIdRef.current !== sessionId) return;
             translatingRef.current = false;
             setErrorText(
-              `Reconnect failed: ${reconnectErr instanceof Error ? reconnectErr.message : 'unknown'}. No demo fallback.`,
+              `Could not reconnect: ${reconnectErr instanceof Error ? reconnectErr.message : 'unknown error'}.`,
             );
+            setErrorAction('retry');
             setState('error');
           }
         })();
         return;
       }
-      setErrorText(`${err.code}: ${err.message}. No demo fallback.`);
+      setErrorText(`${err.code}: ${err.message}`);
+      setErrorAction('retry');
       if (session.getState() !== 'stopped') setState('error');
     });
 
@@ -464,8 +485,9 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
       activeSessionIdRef.current = null;
       const pe = err instanceof ProviderError ? err : null;
       setErrorText(
-        `${pe?.code ?? 'ERROR'}: ${err instanceof Error ? err.message : 'Connect failed'}. No demo fallback.`,
+        `${pe?.code ?? 'ERROR'}: ${err instanceof Error ? err.message : 'Could not connect.'}`,
       );
+      setErrorAction('retry');
       setState('error');
     } finally {
       setStarting(false);
@@ -490,6 +512,21 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
   async function onStop() {
     await hardStop(true);
     setState('stopped');
+    setSettingsOpen(true);
+  }
+
+  function onErrorAction() {
+    if (errorAction === 'choose-source') {
+      setErrorText(null);
+      setErrorAction(null);
+      void selectAudioSource();
+      return;
+    }
+    if (errorAction === 'retry') {
+      setErrorText(null);
+      setErrorAction(null);
+      void startTranslation();
+    }
   }
 
   const viewEntries: TranscriptEntryView[] = entries.map((e) => ({
@@ -499,214 +536,202 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
     translatedText: e.translatedText,
     showOriginal,
     fontSize,
+    final: e.final,
   }));
 
-  const busy =
+  const sessionActive =
     state === 'listening' ||
     state === 'paused' ||
     state === 'connecting' ||
     state === 'reconnecting' ||
     starting;
+  const busy = sessionActive;
+  const showWorkspace = hasSource || sessionActive || entries.length > 0 || state === 'error' || state === 'quota_exhausted';
   const primaryLabel =
     state === 'listening'
-      ? 'Ⅱ  Pause'
+      ? 'Pause'
       : state === 'paused'
-        ? '▶  Resume'
-        : state === 'reconnecting'
-          ? 'Reconnecting…'
-          : '▶  Start translation';
+        ? 'Resume'
+        : state === 'reconnecting' || state === 'connecting' || starting
+          ? 'Connecting…'
+          : 'Start translation';
+  const primaryDisabled =
+    starting ||
+    state === 'connecting' ||
+    state === 'reconnecting' ||
+    (!hasSource && state !== 'listening' && state !== 'paused');
+  const stageClass = [
+    'stage',
+    state === 'listening' ? 'is-listening is-active' : '',
+    state === 'paused' ? 'is-paused is-active' : '',
+    state === 'connecting' || state === 'reconnecting' ? 'is-active' : '',
+    state === 'error' ? 'is-error' : '',
+    state === 'quota_exhausted' ? 'is-quota' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <div className="app">
-      <aside>
-        <Brand />
-        <div className="nav">◉ &nbsp; Live translation</div>
-        <div className="side-note">
-          <div style={{ color: 'var(--green)', fontWeight: 600, marginBottom: 8 }}>Microphone not captured.</div>
-          Translate selected tab playback.
-          <br />
-          Keep your conversation flowing.
-          <hr style={{ border: 0, borderTop: '1px solid var(--line)', margin: '16px 0' }} />
-          <button type="button" className="btn" style={{ width: '100%', fontSize: 12 }} onClick={onOpenDemo}>
-            Open Dev demo (samples only)
-          </button>
-        </div>
-      </aside>
-      <main>
-        <div className="top">
-          <span>Workspace / Live translation</span>
-          <StatusPill demo={false}>Live · filter best-effort / unverified</StatusPill>
-        </div>
-        <div className="heading">
-          <div>
-            <h1>Every word, a little clearer.</h1>
-            <p>Select a YouTube or Teams tab, then start English subtitles.</p>
-          </div>
-        </div>
+    <div className="app-shell">
+      <header className="app-header">
+        <Brand compact={showWorkspace} />
+        <PrivacyLabel />
+      </header>
 
-        <div className="grid">
-          <section className="card settings">
-            <div className="eyebrow">SET UP YOUR SESSION</div>
-            <h2>What are you listening to?</h2>
-            <SourceCard
-              name={sourceLabel}
-              detail={sourceDetail}
-              icon={sourceKind === 'system' ? '▣' : sourceKind ? '▶' : '?'}
+      <div className={stageClass}>
+        {!showWorkspace ? (
+          <section className="empty-state" aria-labelledby="empty-title">
+            <h1 id="empty-title">Understand what you’re listening to</h1>
+            <p>Choose a Teams or YouTube tab to translate its speech into English.</p>
+            <SourceBar
+              hasSource={false}
+              name=""
+              busy={busy}
+              onChoose={() => void selectAudioSource()}
+              onChange={() => void selectAudioSource()}
             />
-            <button
-              type="button"
-              className="btn wide"
-              disabled={busy}
-              onClick={() => void selectAudioSource()}
-            >
-              ↗ &nbsp; Select audio source
-            </button>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
-              Opens your browser’s sharing dialog. Choose a Teams or YouTube tab and enable{' '}
-              <strong>Share tab audio</strong>. This is not a simulated picker.
+            <p className="empty-hint">
+              Select the tab and enable “Share tab audio” in your browser.
             </p>
-            <hr style={{ border: 0, borderTop: '1px solid var(--line)', margin: '24px 0' }} />
-            <label className="field" htmlFor="language">
-              Translate from
-            </label>
-            <select id="language" className="field-control" disabled value="ko">
-              <option value="ko">Korean</option>
-            </select>
-            <div style={{ textAlign: 'center', color: '#9ba69d', margin: 8 }}>↓</div>
-            <label className="field" htmlFor="target">
-              Translate into
-            </label>
-            <select id="target" className="field-control" disabled value="en">
-              <option value="en">English</option>
-            </select>
-            <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12, marginTop: 19 }}>
-              <input type="checkbox" checked disabled readOnly />
-              <span>
-                Only show selected-language results when detection is available
-                <br />
-                <span style={{ color: 'var(--muted)' }}>
-                  Filter status: {caps?.languageFilterStatus ?? 'unverified'}. Not a guarantee of Korean-only.
-                </span>
-              </span>
-            </label>
-            <div className="notice">
-              <strong>◌ &nbsp; Playback audio only</strong>
-              Microphone is never requested. Video frames are never sent to Gemini. Discarding translated audio does not
-              prove zero audio-generation quota use.
-            </div>
-            {capsError ? (
-              <p style={{ color: '#8a2f2f', fontSize: 12 }}>API: {capsError}</p>
-            ) : null}
             {caps && !caps.liveTestAllowed ? (
-              <div className="notice" style={{ background: '#faf4e8', border: '1px solid #eee2c9' }}>
-                <strong>Free-tier gate</strong>
-                <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+              <div className="gate-note">
+                Live translation opens after free-tier eligibility is confirmed.
+                <ul>
                   {(caps.missingEligibilityEvidence ?? []).map((item) => (
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
               </div>
             ) : null}
+            {capsError ? (
+              <p className="empty-hint" role="status">
+                Translation service is unreachable. Start the Go API, then refresh.
+              </p>
+            ) : null}
           </section>
+        ) : (
+          <>
+            <div className="toolbar">
+              <div className="lang-chip" aria-label="Translation languages">
+                Korean <span aria-hidden>→</span> English
+              </div>
+              <StatusLine>{statusCopy(state, hasSource)}</StatusLine>
+            </div>
 
-          <div>
-            <section className={`card workspace${state === 'listening' ? ' running' : ''}`}>
-              <div className="live-head">
-                <div className="status" role="status">
-                  <span className="dot" />
-                  <span>{statusCopy(state, hasSource)}</span>
-                </div>
-                <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--muted)', alignItems: 'center' }}>
+            <SourceBar
+              hasSource={hasSource}
+              name={sourceLabel}
+              detail={hasSource ? sourceDetail : undefined}
+              busy={busy}
+              onChoose={() => void selectAudioSource()}
+              onChange={() => void selectAudioSource()}
+            />
+
+            {errorText ? (
+              <div className="error-banner" role="alert">
+                <p>{errorText}</p>
+                {errorAction === 'choose-source' ? (
+                  <button type="button" className="btn btn-ghost" onClick={onErrorAction}>
+                    Choose source again
+                  </button>
+                ) : null}
+                {errorAction === 'retry' ? (
+                  <button type="button" className="btn btn-ghost" onClick={onErrorAction}>
+                    Retry connection
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            <section className="subtitle-stage" aria-label="Subtitles">
+              <div className="subtitle-stage-head">
+                <div className="subtitle-toggles">
                   <label>
                     <input
                       type="checkbox"
                       checked={showOriginal}
                       onChange={(e) => setShowOriginal(e.target.checked)}
-                    />{' '}
-                    Original
+                    />
+                    Show Korean
                   </label>
-                  <button
-                    type="button"
-                    className="btn"
-                    style={{ border: 0, background: 'none', padding: 5 }}
-                    onClick={() => setFontSize((f) => (f >= 25 ? 17 : f + 2))}
-                  >
-                    A+
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
-                    style={{ border: 0, background: 'none', padding: 5 }}
-                    onClick={() => {
-                      sessionRef.current?.clear();
-                      setEntries([]);
-                    }}
-                  >
-                    Clear
-                  </button>
+                  {hasSource ? (
+                    <span style={{ color: 'var(--muted)', fontSize: 12 }} aria-live="off">
+                      Audio {Math.round(level * 100)}%
+                    </span>
+                  ) : null}
                 </div>
-              </div>
-              <div style={{ padding: '12px 24px 0' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-                  Audio activity · {Math.round(level * 100)}%
-                </div>
-                <div
-                  style={{
-                    height: 10,
-                    borderRadius: 8,
-                    background: '#e9eee7',
-                    overflow: 'hidden',
-                    border: '1px solid var(--line)',
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => {
+                    sessionRef.current?.clear();
+                    setEntries([]);
                   }}
-                  role="meter"
-                  aria-valuenow={Math.round(level * 100)}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
                 >
-                  <div style={{ width: `${Math.round(level * 100)}%`, height: '100%', background: 'var(--green)' }} />
-                </div>
-                {errorText ? (
-                  <p role="alert" style={{ color: '#8a2f2f', fontSize: 13 }}>
-                    {errorText}
-                  </p>
-                ) : null}
-                <p style={{ fontSize: 12, color: 'var(--muted)' }}>{metrics}</p>
-                {firstSubtitleMs != null ? (
-                  <p style={{ fontSize: 12 }}>Measured first subtitle: {firstSubtitleMs} ms</p>
-                ) : null}
+                  Clear
+                </button>
               </div>
-              <div className="transcript" role="log" aria-live="polite">
-                <TranscriptList
-                  entries={viewEntries}
-                  emptyMessage="No live subtitles yet. Select a tab with Korean speech, then Start translation."
-                />
-              </div>
-              <div className="foot">
-                <span>Korean → English · live transcripts</span>
-                <div className="wave" aria-hidden>
-                  <i /><i /><i /><i /><i /><i /><i /><i /><i />
-                </div>
-              </div>
+              <TranscriptPanel
+                entries={viewEntries}
+                fontSize={fontSize}
+                empty={
+                  <div className="transcript-empty">
+                    {hasSource
+                      ? 'Press Start translation when you’re ready.'
+                      : 'Choose an audio source to begin.'}
+                  </div>
+                }
+              />
             </section>
+
             <SessionControls
-              timerLabel={clock(seconds)}
-              hint={
-                state === 'listening'
-                  ? '· Sending playback PCM'
-                  : state === 'paused'
-                    ? '· Outbound audio stopped'
-                    : hasSource
-                      ? '· Source ready'
-                      : '· Select a source first'
-              }
+              timerLabel={sessionActive || seconds > 0 ? clock(seconds) : undefined}
               primaryLabel={primaryLabel}
               onPrimary={onPrimary}
               onStop={() => void onStop()}
+              primaryDisabled={primaryDisabled}
               stopDisabled={!busy && state !== 'error' && state !== 'quota_exhausted'}
             />
-          </div>
-        </div>
-      </main>
+
+            <details
+              className="settings-panel"
+              open={settingsOpen}
+              onToggle={(e) => setSettingsOpen((e.target as HTMLDetailsElement).open)}
+            >
+              <summary>
+                Settings
+                <span aria-hidden>{settingsOpen ? '▴' : '▾'}</span>
+              </summary>
+              <div className="settings-body">
+                <label>
+                  Subtitle size
+                  <input
+                    type="range"
+                    min={16}
+                    max={28}
+                    step={1}
+                    value={fontSize}
+                    onChange={(e) => setFontSize(Number(e.target.value))}
+                    aria-valuetext={`${fontSize} pixels`}
+                  />
+                </label>
+                <p style={{ margin: 0, color: 'var(--muted)' }}>
+                  Language filter: {caps?.languageFilterStatus ?? 'unverified'} (best-effort when the
+                  provider reports a source language).
+                </p>
+                {firstSubtitleMs != null ? (
+                  <p style={{ margin: 0, color: 'var(--muted)' }}>
+                    First subtitle measured at {firstSubtitleMs} ms
+                    {metrics ? ` · ${metrics}` : ''}
+                  </p>
+                ) : metrics ? (
+                  <p style={{ margin: 0, color: 'var(--muted)' }}>{metrics}</p>
+                ) : null}
+              </div>
+            </details>
+          </>
+        )}
+      </div>
     </div>
   );
 }

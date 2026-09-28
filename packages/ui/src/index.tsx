@@ -1,83 +1,70 @@
-import type { ReactNode } from 'react';
+'use client';
 
-export function Brand({ tagline = 'UNDERSTAND IN THE MOMENT' }: { tagline?: string }) {
+import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+
+export function Brand({ compact = false }: { compact?: boolean; tagline?: string }) {
   return (
-    <div>
-      <div style={{ fontSize: 26, fontWeight: 750, letterSpacing: -1, display: 'flex', gap: 10, alignItems: 'center' }}>
-        <span
-          aria-hidden
-          style={{
-            color: 'white',
-            background: 'var(--green)',
-            borderRadius: 12,
-            width: 35,
-            textAlign: 'center',
-            fontSize: 24,
-          }}
-        >
-          ≈
-        </span>
-        luma
+    <div className={compact ? 'brand brand--compact' : 'brand'}>
+      <div className="brand-mark" aria-hidden>
+        ≈
       </div>
-      <div style={{ fontSize: 10, letterSpacing: 1.7, color: 'var(--muted)', margin: '7px 0 42px' }}>{tagline}</div>
+      <div>
+        <div className="brand-name">luma</div>
+        {!compact ? <div className="brand-tag">Understand what you’re listening to</div> : null}
+      </div>
     </div>
   );
 }
 
-export function StatusPill({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
+export function PrivacyLabel() {
   return (
-    <span
-      className={demo ? 'demo-pill' : undefined}
-      style={{
-        border: demo ? '1px solid #eee2c9' : '1px solid var(--line)',
-        padding: '6px 11px',
-        borderRadius: 30,
-        background: demo ? '#faf4e8' : 'white',
-        color: demo ? '#a07835' : 'inherit',
-      }}
-    >
-      {children}
-    </span>
+    <p className="privacy-label" role="note">
+      Playback audio only · Microphone off
+    </p>
   );
 }
 
-export function SourceCard({
+export function StatusLine({ children }: { children: ReactNode }) {
+  return (
+    <div className="status-line" role="status" aria-live="polite">
+      <span className="status-dot" aria-hidden />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+export function SourceBar({
+  hasSource,
   name,
   detail,
-  icon,
+  busy,
+  onChoose,
+  onChange,
 }: {
+  hasSource: boolean;
   name: string;
-  detail: string;
-  icon: string;
+  detail?: string;
+  busy: boolean;
+  onChoose: () => void;
+  onChange: () => void;
 }) {
+  if (!hasSource) {
+    return (
+      <button type="button" className="btn btn-primary" disabled={busy} onClick={onChoose}>
+        Choose audio source
+      </button>
+    );
+  }
   return (
-    <div
-      style={{
-        padding: 15,
-        background: '#f6f8f5',
-        border: '1px solid var(--line)',
-        borderRadius: 10,
-        margin: '12px 0',
-      }}
-    >
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontWeight: 650 }}>
-        <span
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 8,
-            background: '#e9e7fb',
-            color: '#6253ac',
-            display: 'grid',
-            placeItems: 'center',
-            fontSize: 17,
-          }}
-        >
-          {icon}
-        </span>
-        <span>{name}</span>
+    <div className="source-bar">
+      <div className="source-bar-text">
+        <div className="source-bar-name">{name}</div>
+        {detail ? <div className="source-bar-detail">{detail}</div> : null}
       </div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 9 }}>{detail}</div>
+      <button type="button" className="btn btn-ghost" disabled={busy} onClick={onChange}>
+        Change
+      </button>
     </div>
   );
 }
@@ -89,8 +76,166 @@ export type TranscriptEntryView = {
   translatedText: string;
   showOriginal: boolean;
   fontSize: number;
+  final: boolean;
 };
 
+export function TranscriptPanel({
+  entries,
+  empty,
+  fontSize,
+}: {
+  entries: TranscriptEntryView[];
+  empty: ReactNode;
+  fontSize: number;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [pinned, setPinned] = useState(true);
+  const [showJump, setShowJump] = useState(false);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || !pinned) return;
+    el.scrollTop = el.scrollHeight;
+  }, [entries, pinned]);
+
+  function onScroll() {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = distance < 48;
+    setPinned(atBottom);
+    setShowJump(!atBottom && entries.length > 0);
+  }
+
+  function jumpToLatest() {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setPinned(true);
+    setShowJump(false);
+  }
+
+  return (
+    <div className="transcript-shell">
+      <div
+        ref={scrollerRef}
+        className="transcript-scroll"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        onScroll={onScroll}
+        tabIndex={0}
+        style={{ ['--subtitle-size' as string]: `${fontSize}px` }}
+      >
+        {entries.length === 0 ? empty : null}
+        {entries.map((entry) => (
+          <article
+            key={entry.segmentId}
+            className={`subtitle-row${entry.final ? ' is-final' : ' is-provisional'}`}
+          >
+            <time className="subtitle-time" dateTime={entry.timeLabel}>
+              {entry.timeLabel}
+            </time>
+            <div className="subtitle-body">
+              {entry.showOriginal && entry.originalText ? (
+                <p className="subtitle-ko" lang="ko">
+                  {entry.originalText}
+                </p>
+              ) : null}
+              <p className="subtitle-en" lang="en">
+                {entry.translatedText}
+                {!entry.final ? <span className="provisional-mark"> · updating</span> : null}
+              </p>
+            </div>
+          </article>
+        ))}
+      </div>
+      {showJump ? (
+        <button type="button" className="jump-latest" onClick={jumpToLatest}>
+          Jump to latest
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+export function SessionControls({
+  primaryLabel,
+  onPrimary,
+  onStop,
+  primaryDisabled,
+  stopDisabled,
+  timerLabel,
+}: {
+  primaryLabel: string;
+  onPrimary: () => void;
+  onStop: () => void;
+  primaryDisabled?: boolean;
+  stopDisabled: boolean;
+  timerLabel?: string;
+}) {
+  function onKey(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === ' ' && !primaryDisabled) {
+      e.preventDefault();
+      onPrimary();
+    }
+  }
+
+  return (
+    <div className="session-controls" onKeyDown={onKey}>
+      {timerLabel ? (
+        <span className="session-timer" aria-label={`Session time ${timerLabel}`}>
+          {timerLabel}
+        </span>
+      ) : (
+        <span />
+      )}
+      <div className="session-actions">
+        <button type="button" className="btn btn-ghost" onClick={onStop} disabled={stopDisabled}>
+          Stop
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={onPrimary}
+          disabled={primaryDisabled}
+        >
+          {primaryLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** @deprecated Prefer SourceBar — kept for Dev demo compatibility */
+export function SourceCard({
+  name,
+  detail,
+  icon,
+}: {
+  name: string;
+  detail: string;
+  icon: string;
+}) {
+  return (
+    <div className="legacy-source-card">
+      <div className="legacy-source-card-row">
+        <span className="legacy-source-icon" aria-hidden>
+          {icon}
+        </span>
+        <span>{name}</span>
+      </div>
+      <div className="legacy-source-detail">{detail}</div>
+    </div>
+  );
+}
+
+/** @deprecated Prefer StatusLine */
+export function StatusPill({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
+  return <span className={demo ? 'demo-pill status-pill' : 'status-pill'}>{children}</span>;
+}
+
+/** @deprecated Prefer TranscriptPanel */
 export function TranscriptList({
   entries,
   emptyMessage,
@@ -98,94 +243,5 @@ export function TranscriptList({
   entries: TranscriptEntryView[];
   emptyMessage: string;
 }) {
-  if (entries.length === 0) {
-    return (
-      <div style={{ padding: '90px 20px', textAlign: 'center', color: 'var(--muted)' }}>{emptyMessage}</div>
-    );
-  }
-  return (
-    <>
-      {entries.map((entry, index) => (
-        <div
-          key={entry.segmentId}
-          style={{ display: 'grid', gridTemplateColumns: '43px 1fr', gap: 15, marginBottom: 26 }}
-        >
-          <span style={{ fontSize: 11, color: '#98a199', paddingTop: 5, fontVariantNumeric: 'tabular-nums' }}>
-            {entry.timeLabel}
-          </span>
-          <div>
-            {entry.showOriginal && entry.originalText ? (
-              <div style={{ color: '#8b948d', fontSize: 13, marginBottom: 7 }} lang="ko">
-                {entry.originalText}
-              </div>
-            ) : null}
-            <div
-              style={{
-                fontSize: entry.fontSize,
-                lineHeight: 1.55,
-                letterSpacing: -0.2,
-                color: index === entries.length - 1 ? 'var(--green)' : undefined,
-              }}
-            >
-              {entry.translatedText}
-            </div>
-          </div>
-        </div>
-      ))}
-    </>
-  );
-}
-
-export function SessionControls({
-  timerLabel,
-  hint,
-  primaryLabel,
-  onPrimary,
-  onStop,
-  stopDisabled,
-}: {
-  timerLabel: string;
-  hint: string;
-  primaryLabel: string;
-  onPrimary: () => void;
-  onStop: () => void;
-  stopDisabled: boolean;
-}) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 19, flexWrap: 'wrap', gap: 10 }}>
-      <div style={{ fontVariantNumeric: 'tabular-nums', fontSize: 13, color: 'var(--muted)' }}>
-        Session <strong style={{ color: 'var(--ink)' }}>{timerLabel}</strong> <span>{hint}</span>
-      </div>
-      <div style={{ display: 'flex', gap: 9 }}>
-        <button
-          type="button"
-          onClick={onStop}
-          disabled={stopDisabled}
-          style={{
-            border: '1px solid var(--line)',
-            background: 'white',
-            padding: '10px 16px',
-            borderRadius: 8,
-            fontWeight: 600,
-          }}
-        >
-          ■ &nbsp; Stop
-        </button>
-        <button
-          type="button"
-          onClick={onPrimary}
-          style={{
-            border: '1px solid var(--green)',
-            background: 'var(--green)',
-            color: 'white',
-            padding: '10px 16px',
-            borderRadius: 8,
-            fontWeight: 600,
-          }}
-        >
-          {primaryLabel}
-        </button>
-      </div>
-    </div>
-  );
+  return <TranscriptPanel entries={entries} empty={<div className="transcript-empty">{emptyMessage}</div>} fontSize={entries[0]?.fontSize ?? 20} />;
 }

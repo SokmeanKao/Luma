@@ -312,6 +312,7 @@ export function LiveTestPanel() {
     translatedText: e.translatedText,
     showOriginal: true,
     fontSize: 19,
+    final: e.final,
   }));
 
   const active = state === 'listening' || state === 'paused' || state === 'connecting';
@@ -401,13 +402,6 @@ export function LiveTestPanel() {
 
       <SessionControls
         timerLabel={clock(seconds)}
-        hint={
-          state === 'listening'
-            ? '· Sending PCM to Gemini'
-            : state === 'paused'
-              ? '· Audio send paused'
-              : '· Live test idle'
-        }
         primaryLabel={primaryLabel}
         onPrimary={() => {
           if (state === 'listening' || state === 'paused') onPauseResume();

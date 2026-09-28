@@ -1,15 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import { LiveWorkspace } from '../components/LiveWorkspace';
 import { DevDemoWorkspace } from '../components/DevDemoWorkspace';
 
-export default function HomePage() {
-  const [view, setView] = useState<'live' | 'demo'>('live');
+function HomeInner() {
+  const params = useSearchParams();
+  const demo = params.get('demo') === '1';
 
-  if (view === 'demo') {
-    return <DevDemoWorkspace onBack={() => setView('live')} />;
+  if (demo) {
+    return <DevDemoWorkspace onBack={() => { window.location.href = '/'; }} />;
   }
 
-  return <LiveWorkspace onOpenDemo={() => setView('demo')} />;
+  return <LiveWorkspace />;
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="app-shell">Loading…</div>}>
+      <HomeInner />
+    </Suspense>
+  );
 }

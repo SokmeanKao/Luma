@@ -71,6 +71,7 @@ export function DevDemoWorkspace({ onBack }: { onBack: () => void }) {
         translatedText: e.translatedText,
         showOriginal,
         fontSize,
+        final: e.final,
       })),
     [entries, showOriginal, fontSize],
   );
@@ -96,11 +97,13 @@ export function DevDemoWorkspace({ onBack }: { onBack: () => void }) {
       { mode: 'demo', sourceLanguage: 'ko', targetLanguage: 'en', sessionId: 'dev-demo' },
       'demo',
     );
+    // Ensure generation matches the just-started session before the first sample.
     provider.startDemo();
+    setEntries(session.listTranscript());
   }
 
   return (
-    <div className="app">
+    <div className="app" data-demo-ready="true">
       <aside>
         <Brand />
         <div className="nav">◉ &nbsp; Dev demo</div>
@@ -140,14 +143,13 @@ export function DevDemoWorkspace({ onBack }: { onBack: () => void }) {
                   Original
                 </label>
               </div>
-              <div className="transcript" role="log">
+              <div className="transcript">
                 <TranscriptList entries={viewEntries} emptyMessage="Start demo for sample rows." />
               </div>
             </section>
             <SessionControls
               timerLabel={clock(seconds)}
-              hint="· Simulated"
-              primaryLabel={state === 'listening' ? 'Ⅱ  Pause' : state === 'paused' ? '▶  Resume' : '▶  Start demo'}
+              primaryLabel={state === 'listening' ? 'Pause' : state === 'paused' ? 'Resume' : 'Start demo'}
               onPrimary={() => void onPrimary()}
               onStop={() => {
                 sessionRef.current?.stop();
