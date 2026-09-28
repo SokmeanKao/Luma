@@ -19,8 +19,9 @@
 - No database; no persistent transcript history.
 - Hosted multi-user token endpoint stays disabled; local API binds to loopback.
 - Do not invent free-tier quotas, latency metrics, or unverified provider capabilities.
-- Feasibility gates F-01–F-06 remain **blocked** until live evidence is recorded in `docs/feasibility/`.
-- Commit on a feature branch (not `main`) after `git init`.
+- Record feasibility gates **individually** in `docs/feasibility/STATUS.md`. Credentials block provider tests (F-01–F-03, F-06). Browser capture (F-04) can be exercised without Gemini. Untested gates are **pending verification** with concrete blockers named. Do not mark a simulated test as a live provider test.
+- The live-token stub must return a clear **not configured** / `CONFIGURATION_MISSING` response — **never** a fabricated working token (even if an API key env var is present).
+- Commit on feature branch `feat/luma-foundation` in the worktree. Do not push or deploy.
 - Prefer TDD for pure pipeline logic; use Go tests for API validation.
 
 ## File structure (this plan)
@@ -133,18 +134,18 @@ Each package `package.json` must include `"name"`, `"version": "0.0.0"`, `"priva
 
 - [ ] **Step 4: Write feasibility status stub**
 
-`docs/feasibility/STATUS.md`:
+`docs/feasibility/STATUS.md` — record each gate individually. Use statuses `pending verification` or `blocked` with a concrete blocker. Example starting point (update honestly as work proceeds):
 ```markdown
 # Feasibility gates
 
-| Gate | Status | Evidence |
+| Gate | Status | Blocker / notes |
 |---|---|---|
-| F-01 Translated text | blocked | No live Gemini credential exercised in this plan |
-| F-02 Source-language filtering | blocked | Mock only; live filter unverified |
-| F-03 Authentication / ephemeral tokens | blocked | Go endpoint stubbed; token minting untested against Google |
-| F-04 Web capture | blocked | Adapter interface only; manual Chrome/Edge test pending |
-| F-05 Windows capture | blocked | Electron out of scope for foundation plan |
-| F-06 Quota / session limits | blocked | No live quota measurement |
+| F-01 Translated text | pending verification | Blocker: no Gemini credentials exercised; mock demo is not live evidence |
+| F-02 Source-language filtering | pending verification | Blocker: live filter unverified; mock skip logic is not provider evidence |
+| F-03 Authentication / ephemeral tokens | pending verification | Blocker: live-token returns CONFIGURATION_MISSING / not configured; no Google mint |
+| F-04 Web capture | pending verification | Can be tested without Gemini; manual Chrome/Edge getDisplayMedia proof still required |
+| F-05 Windows capture | pending verification | Blocker: Electron out of scope for foundation plan |
+| F-06 Quota / session limits | pending verification | Blocker: no live quota measurement without credentials/project dashboard |
 ```
 
 - [ ] **Step 5: Commit**
@@ -326,7 +327,7 @@ git commit -m "feat(audio): encoder helpers and display-media capture adapter"
 - Produces:
   - `GET /healthz` → `{"ok":true}` no secrets
   - `GET /api/v1/capabilities` → tested languages only (`ko`→`en`), `providerAvailable` false until token mint verified
-  - `POST /api/v1/live-token` → validates JSON body `{ "sourceLanguage": "ko", "targetLanguage": "en" }`; if `GEMINI_API_KEY` empty return `CONFIGURATION_MISSING`; if present return stub structure with `Cache-Control: no-store` and **do not log** token; real Google mint is out of scope until F-03 (return `PROVIDER_UNAVAILABLE` with message that minting is not yet implemented when key present, OR implement HTTP mint if docs allow in under 1 hour — prefer honest `PROVIDER_UNAVAILABLE` over fake tokens)
+  - `POST /api/v1/live-token` → validates JSON body `{ "sourceLanguage": "ko", "targetLanguage": "en" }`; always returns a clear **not configured** response with error code `CONFIGURATION_MISSING` (HTTP 503 or 501 — pick one and test it). Message must state live token minting is not configured. **Never** return a fabricated working token, temporary credential, or success payload — even if `GEMINI_API_KEY` is set. Use `Cache-Control: no-store`. Do not log keys or token-like values.
 
 - [ ] **Step 1: Write Go handler tests**
 
@@ -334,8 +335,9 @@ git commit -m "feat(audio): encoder helpers and display-media capture adapter"
 func TestHealthz(t *testing.T) { /* GET /healthz status 200, body ok, no key fields */ }
 func TestCapabilities_NoFabricatedQuota(t *testing.T) { /* response must not contain invented remainingMinutes */ }
 func TestLiveToken_InvalidLanguage(t *testing.T) { /* 400 INVALID_CONFIG */ }
-func TestLiveToken_MissingKey(t *testing.T) { /* CONFIGURATION_MISSING */ }
-func TestLiveToken_NoStoreHeader(t *testing.T) { /* Cache-Control: no-store when 200 or error with body */ }
+func TestLiveToken_NotConfigured(t *testing.T) { /* always CONFIGURATION_MISSING / not configured; never 200 with a token */ }
+func TestLiveToken_NoFabricatedTokenEvenWithKey(t *testing.T) { /* with GEMINI_API_KEY set in test config, still not configured; response has no credential field */ }
+func TestLiveToken_NoStoreHeader(t *testing.T) { /* Cache-Control: no-store on response */ }
 ```
 
 - [ ] **Step 2: Run tests — expect FAIL**
@@ -471,4 +473,4 @@ git commit -m "docs: foundation verification checklist and gate status"
 
 ## Placeholder scan
 
-No TBD steps; live token mint explicitly returns `PROVIDER_UNAVAILABLE` until Plan 2.)
+No TBD steps; live-token stub always returns `CONFIGURATION_MISSING` / not configured — never a fabricated token.)
