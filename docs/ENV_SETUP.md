@@ -43,14 +43,9 @@ go run ./cmd/server
 | `TARGET_LANGUAGE_CODE` | Default `en` | Locked into ephemeral token translation constraints. |
 | `BIND_ADDR` | Default `127.0.0.1:8080` | Loopback bind address. |
 | `ALLOWED_ORIGINS` | Default `http://localhost:3000` | Exact Origin allowlist (comma-separated). |
-| `DEMO_MODE` | Optional | Informational flag for ops; does not invent quotas. |
-
-### Web client (public, no secrets)
-
-| Name | Allowed values | Description |
-|---|---|---|
-| `NEXT_PUBLIC_LUMA_MODE` | `demo` (default) | UI default mode hint. Live remains disabled in product UI until gates pass. |
-| `NEXT_PUBLIC_API_BASE` | `http://127.0.0.1:8080` | Loopback API base for token requests later. |
+| `DEMO_MODE` | Optional | Ops flag (`true`/`false`). Informational for Go; does not invent quotas. Set `false` for real translation runs. |
+| `NEXT_PUBLIC_LUMA_MODE` | `live` \| `capture` \| `demo` | Public UI mode. **`live`** (and `capture`) open the real capture→Gemini workspace. **`demo`** opens sample subtitles only. Invalid values fall back to `live`. |
+| `NEXT_PUBLIC_API_BASE` | `http://127.0.0.1:8080` | Loopback API base (plain URL text). |
 
 ## Forbidden
 

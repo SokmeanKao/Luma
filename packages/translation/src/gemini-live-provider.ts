@@ -96,20 +96,21 @@ export class GeminiLiveProvider {
         const model = cred.model.startsWith('models/') ? cred.model : `models/${cred.model}`;
         const target = cred.targetLanguageCode || 'en';
         const echo = Boolean(cred.echoTargetLanguage);
-        // Live Translate setup (docs). Audio output is discarded client-side; transcripts are used.
+        // Live Translate: translationConfig lives under generationConfig;
+        // input/output transcription configs are siblings of generationConfig (not nested inside it).
         ws.send(
           JSON.stringify({
             setup: {
               model,
               generationConfig: {
                 responseModalities: ['AUDIO'],
-                inputAudioTranscription: {},
-                outputAudioTranscription: {},
                 translationConfig: {
                   targetLanguageCode: target,
                   echoTargetLanguage: echo,
                 },
               },
+              inputAudioTranscription: {},
+              outputAudioTranscription: {},
             },
           }),
         );

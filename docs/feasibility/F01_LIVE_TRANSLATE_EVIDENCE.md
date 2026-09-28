@@ -35,11 +35,15 @@ If eligibility is unconfirmed, set `FREE_TIER_ELIGIBILITY_CONFIRMED=false` and r
 
 | Run | Pair | Source media | First subtitle ms | Target text observed? | Errors | Notes |
 |---|---|---|---|---|---|---|
-| 1 | ko→en | pending | pending | pending | pending | Only verified pair in catalog today |
+| 1 | ko→en | Korean TTS PCM (edge-tts → s16le 16kHz) via `scripts/live-pcm-smoke.mjs` | n/a (script) | **Yes** — `Hello. Let's start the meeting today.` | none | setupComplete + input/output transcriptions; audio discarded client-side. Browser tab capture still pending manual. |
 | — | ja→en | — | — | — | — | **Not in catalog** until real-audio verification |
 | — | ko→fr | — | — | — | — | **Not in catalog** until real-audio verification |
 
 Dropdown options come only from `supportedPairs` in `/api/v1/capabilities`. Provider language lists alone do **not** add a pair.
+
+### Setup schema fix (2026-09-28)
+
+`inputAudioTranscription` / `outputAudioTranscription` must be **siblings** of `generationConfig` under `setup`, not nested inside `generationConfig` (provider returned WS 1007 otherwise).
 
 ## Filtering (separate from F-01)
 

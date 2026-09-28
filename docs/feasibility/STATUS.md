@@ -8,9 +8,10 @@ Updated after switching the default UI to the live capture→Gemini flow.
 | Mic never requested | implemented | display-media only |
 | Video not sent to Gemini | implemented | audio PCM path only |
 | Temporary token via Go | implemented | v1beta mint verified HTTP 200 |
-| English subtitles from Korean | **pending manual** | Only verified pair today: ko→en |
+| English subtitles from Korean | **partial** | Real Gemini EN text via PCM smoke (`Hello. Let's start the meeting today.`). Browser tab capture E2E still pending. |
 | Selectable language pairs | implemented | Searchable from/to; catalog-driven; swap disabled until reverse verified |
-| Language filter | **unverified** | Uses selected source code; not proven E2E |
+| Language filter | **unverified** | Uses selected source code; provider returned `languageCode: ko` on input — filter wiring present, E2E UI pending |
+| `NEXT_PUBLIC_LUMA_MODE` | **live** | Supported: `live` \| `capture` \| `demo`. `DEMO_MODE=false`. |
 | F-04 Chrome/Edge capture matrix | **pending** | Env versions recorded; matrix empty |
 | F-05 Electron | pending | After web verification |
 | Demo | explicit only | “Open Dev demo” — never silent fallback |
