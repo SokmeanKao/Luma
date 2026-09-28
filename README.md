@@ -1,13 +1,13 @@
 # Luma
 
-Personal live audio translation companion (Korean → English). Default UI is the **real** tab-capture → Gemini Live Translate → English subtitles flow. Demo samples are explicit-only (`Open Dev demo`).
+Personal live audio translation companion. The default app captures **browser tab playback** (not the microphone), streams it to Gemini Live Translate, and shows near-real-time dual transcripts (original + translation). Korean → English is the primary pair; other catalog pairs are selectable.
 
 ## Workspace layout
 
 | Path | Responsibility |
 |---|---|
-| `apps/web` | Next.js App Router — LiveWorkspace (default) |
-| `packages/ui` | Shared React controls and styles (Maven Pro + Noto Sans KR) |
+| `apps/web` | Next.js App Router — `LiveWorkspace` (default) |
+| `packages/ui` | Shared React controls (dual transcript, status, brand) |
 | `packages/translation` | Gemini Live provider, session, language filter, mock (tests/demo) |
 | `packages/audio` | `getDisplayMedia` capture + PCM encoder (no microphone) |
 | `services/api` | Go loopback API: health, capabilities, ephemeral live-token mint |
@@ -27,16 +27,20 @@ Terminal 2 — Next.js:
 ```powershell
 cd C:\Dev\Luma
 pnpm install
-pnpm dev
+pnpm --filter @luma/web dev --hostname 127.0.0.1 --port 3000
 ```
 
-Open http://localhost:3000
+Open http://127.0.0.1:3000
 
-1. **Select audio source** → choose a YouTube/Teams tab → enable **Share tab audio**
-2. Confirm the activity meter moves with playback
-3. **Start translation** → English subtitles from Korean speech
+1. Choose **From** / **To** languages
+2. Click **Choose audio source** → pick a **Chrome Tab** (Teams / YouTube) → enable **Share tab audio**
+3. Translation **starts automatically** after you approve sharing
+4. Use **Pause** / **Resume** / **Stop** as needed
+5. Optional: switch to **Text + voice** only when the source is a browser tab (window / entire screen stay text-only to avoid feedback)
 
-Never enable billing, push, or deploy from this MVP path.
+Privacy label in the UI: **Playback audio only · Microphone not captured**.
+
+Never enable billing, push, or deploy from this MVP path unless you explicitly intend to.
 
 ## Credentials (local only)
 
@@ -55,7 +59,8 @@ See `docs/ENV_SETUP.md`. Never commit `.env`. Never put `GEMINI_API_KEY` in `NEX
 | Mode | How | Notes |
 |---|---|---|
 | **Live (default)** | Homepage | Real capture + Gemini; failures never fall back to demo |
-| **Dev demo** | Sidebar “Open Dev demo” | Sample subtitles only |
+| **Demo** | `/?demo=1` | Explicit sample UI for layout/tests only |
+| **Preview states** | `/preview/transcript?state=…` | Static empty / ready / listening / paused / error fixtures |
 
 ## Automated checks
 
@@ -63,8 +68,9 @@ See `docs/ENV_SETUP.md`. Never commit `.env`. Never put `GEMINI_API_KEY` in `NEX
 cd C:\Dev\Luma
 pnpm --filter @luma/translation test
 pnpm --filter @luma/audio test
-pnpm --filter @luma/web build
+pnpm --filter @luma/web typecheck
 cd services\api; go test ./...
+cd ..\..\apps\web; pnpm exec playwright test --reporter=line
 ```
 
 Mint smoke (does **not** prove translation):
@@ -79,8 +85,9 @@ Invoke-RestMethod -Method POST -Uri http://127.0.0.1:8080/api/v1/live-token `
 
 | Doc | Purpose |
 |---|---|
-| `docs/feasibility/STATUS.md` | Checklist |
+| `docs/feasibility/STATUS.md` | Checklist / milestone framing |
 | `docs/feasibility/F01_LIVE_TRANSLATE_EVIDENCE.md` | Live translate + filter |
 | `docs/feasibility/F04_CAPTURE_EVIDENCE.md` | Chrome/Edge capture matrix |
+| `docs/ux/README.md` | Production UX notes (local screenshots stay gitignored) |
 
 Electron / Windows installer (F-05) starts after web verification.

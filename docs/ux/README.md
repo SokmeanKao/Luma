@@ -1,27 +1,36 @@
 # Luma production UX
 
-## Before (prior default UI)
+Local screenshots under this folder are **gitignored** (`docs/ux/*.png`, etc.). Capture them on your machine when reviewing layout; do not commit binaries.
 
-Two-column workspace: left setup card (source picker, Korean/English selects, filter checkbox, long privacy notice, eligibility dump) + right transcript panel. Sidebar included **Open Dev demo**. Status showed implementation jargon (“Live · filter best-effort / unverified”, PCM metrics, activity meter bar).
+## Current workspace (web)
 
-## After (this change)
+Compact toolbar + transcript-first stage:
 
-| Screen | File |
+- **From / To** searchable language pair + swap
+- Compact **audio source** chip (label + change); empty state points at the primary CTA
+- **Text** / **Text + voice** (voice requires a Chrome **Tab** with Share tab audio)
+- **Audio settings** when voice-relevant (volume / ducking)
+- Status uses a **listening wave** (activity-reactive) instead of a status dot
+- Dual panels: original | translation; text size + clear in the transcript chrome
+- **Choose audio source** auto-starts translation after the share dialog succeeds
+
+## Preview fixtures
+
+| State | URL |
 |---|---|
-| Empty state — choose source | [after-empty-state.png](./after-empty-state.png) |
-| Subtitles (dev demo samples for layout proof) | [after-subtitles-demo.png](./after-subtitles-demo.png) |
+| Empty | `/preview/transcript?state=empty` |
+| Source ready | `/preview/transcript?state=ready` |
+| Listening | `/preview/transcript?state=listening` |
+| Paused | `/preview/transcript?state=paused` |
+| Error | `/preview/transcript?state=error` |
 
-Production focus: **Choose audio source**, **Start translation** / **Pause** + **Stop**, large subtitle stage. Languages as compact **Korean → English**. Settings collapsed. Demo only at `/?demo=1`. Privacy label: **Playback audio only · Microphone off**.
+Privacy label: **Playback audio only · Microphone not captured**.
 
 ## Verification
 
 | Check | Result |
 |---|---|
-| `pnpm --filter @luma/web typecheck/build` | pass |
-| translation / audio tests | 16 / 8 pass |
-| Playwright: empty state | pass |
-| Playwright: demo subtitles + screenshots | pass |
-| Live YouTube → English | pending (manual; capture/Gemini unchanged) |
-| Pause / scroll Jump to latest | implemented; manual browser pending |
-
-Backend contracts unchanged.
+| `pnpm --filter @luma/web typecheck` | pass |
+| Playwright workspace-states / layout | pass |
+| Live YouTube → English | pending (manual) |
+| Text + voice + ducking E2E | pending (tab + suppressLocalAudioPlayback) |
