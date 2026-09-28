@@ -1,0 +1,14 @@
+{
+  "name": "@luma/win-audio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Windows WASAPI process-loopback capture host (no microphone)",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "dotnet build host/Luma.WinAudioHost.csproj -c Release",
+    "install": "node scripts/install.js",
+    "test": "node scripts/smoke.js",
+    "lint": "echo ok"
+  }
+}

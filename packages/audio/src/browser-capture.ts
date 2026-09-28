@@ -27,6 +27,15 @@ function suppressLocalAudioPlaybackSupported(): boolean {
   }
 }
 
+function isElectronRenderer(): boolean {
+  return (
+    typeof navigator !== 'undefined' &&
+    (/Electron/i.test(navigator.userAgent) ||
+      // Desktop preload bridge
+      (typeof window !== 'undefined' && 'lumaDesktop' in window))
+  );
+}
+
 /**
  * Browser tab/window capture via getDisplayMedia.
  * Must be invoked from a user gesture. Never opens the microphone input API.
@@ -42,26 +51,28 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
       throw new Error('getDisplayMedia is not available in this browser');
     }
 
-    const wantSuppress = suppressLocalAudioPlaybackSupported();
-    const audioConstraints: Record<string, unknown> = {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    };
-    if (wantSuppress) {
-      // When true, the tab’s speakers are muted for the user while capture continues —
-      // required for Luma to monitor/duck original audio without double playback.
-      audioConstraints.suppressLocalAudioPlayback = true;
-    }
+    const electron = isElectronRenderer();
+    const wantSuppress = !electron && suppressLocalAudioPlaybackSupported();
+    const audioConstraints: Record<string, unknown> | boolean = electron
+      ? true
+      : {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          ...(wantSuppress ? { suppressLocalAudioPlayback: true } : {}),
+        };
 
-    const constraints: DisplayMediaOpts = {
-      // Prefer the Chrome Tab pane so Text + voice can be enabled safely.
-      video: { displaySurface: 'browser' },
-      audio: audioConstraints as MediaTrackConstraints,
-      selfBrowserSurface: 'exclude',
-      systemAudio: 'exclude',
-      preferCurrentTab: false,
-    };
+    // Electron cannot use Chrome's displaySurface:'browser' tab picker; the main
+    // process display-media handler supplies screen/window + loopback instead.
+    const constraints: DisplayMediaOpts = electron
+      ? { video: true, audio: audioConstraints as MediaTrackConstraints }
+      : {
+          video: { displaySurface: 'browser' },
+          audio: audioConstraints as MediaTrackConstraints,
+          selfBrowserSurface: 'exclude',
+          systemAudio: 'exclude',
+          preferCurrentTab: false,
+        };
 
     let stream: MediaStream;
     try {
@@ -70,6 +81,13 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
       const name = err instanceof DOMException ? err.name : '';
       if (name === 'NotAllowedError' || name === 'AbortError') {
         throw new CaptureCancelledError();
+      }
+      if (name === 'NotSupportedError') {
+        throw new Error(
+          electron
+            ? 'Screen capture is not available in this Electron build. Restart the desktop app after updating.'
+            : 'This browser cannot share a tab. Use Chrome or Edge on Windows.',
+        );
       }
       throw err instanceof Error ? err : new Error(String(err));
     }
@@ -97,12 +115,19 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
           ? 'Application window'
           : displaySurface === 'monitor'
             ? 'Entire screen'
-            : 'Selected playback source');
+            : electron
+              ? 'Desktop playback'
+              : 'Selected playback source');
 
     const sourceKind: SourceKind =
-      displaySurface === 'monitor' || opts?.preferredSourceKind === 'system' ? 'system' : 'tab';
+      displaySurface === 'monitor' || opts?.preferredSourceKind === 'system'
+        ? 'system'
+        : displaySurface === 'window' || electron
+          ? 'system'
+          : 'tab';
 
-    const voicePlaybackSafe = displaySurface === 'browser';
+    // Electron loopback is system-wide (not a suppress-capable Chrome tab).
+    const voicePlaybackSafe = displaySurface === 'browser' && !electron;
     const localPlaybackSuppressed =
       voicePlaybackSafe && settings.suppressLocalAudioPlayback === true;
 
@@ -115,7 +140,7 @@ export class BrowserCaptureAdapter implements CaptureAdapter {
       stream,
       sourceKind,
       label,
-      displaySurface,
+      displaySurface: displaySurface ?? (electron ? 'monitor' : undefined),
       voicePlaybackSafe,
       localPlaybackSuppressed,
       stop: () => {

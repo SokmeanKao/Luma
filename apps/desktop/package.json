@@ -5,8 +5,8 @@
   "description": "Electron Windows client — Phase A shell + floating subtitles",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev": "pnpm --filter @luma/win-audio build && electron-vite dev",
+    "build": "pnpm --filter @luma/win-audio build && electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
@@ -16,6 +16,7 @@
     "@luma/audio": "workspace:*",
     "@luma/translation": "workspace:*",
     "@luma/ui": "workspace:*",
+    "@luma/win-audio": "workspace:*",
     "@tailwindcss/postcss": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

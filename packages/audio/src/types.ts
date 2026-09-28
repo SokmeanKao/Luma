@@ -45,5 +45,5 @@ export class NoAudioTrackError extends Error {
 export const NEVER_USES_MICROPHONE = true;
 
 export function captureApisUsed(): string[] {
-  return ['getDisplayMedia'];
+  return ['getDisplayMedia', 'wasapi-process-loopback'];
 }

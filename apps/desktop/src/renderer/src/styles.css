@@ -1,5 +1,11 @@
 @import '@web/app/globals.css';
 
+/* Electron Vite only scans this package by default — include web + shared UI sources
+   so shadcn/Tailwind utilities (popover, button, command) are generated. */
+@source '../../../../web/src/**/*.{js,ts,jsx,tsx}';
+@source '../../../../../packages/ui/src/**/*.{js,ts,jsx,tsx}';
+@source './**/*.{js,ts,jsx,tsx}';
+
 :root {
   --font-maven: 'Maven Pro', 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
   --font-noto-kr: 'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
@@ -11,6 +17,30 @@
   align-items: center;
   gap: 8px;
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Safety net if a utility is missed — keep language popover boxed */
+[data-slot='popover-content'].lang-popover {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px #122b2418;
+  overflow: hidden;
+  max-height: min(320px, 70vh);
+  padding: 0;
+}
+
+.lang-popover [data-slot='command'] {
+  background: #fff;
+  overflow: hidden;
+  max-height: inherit;
+}
+
+.lang-popover [data-slot='command-list'] {
+  max-height: 240px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .float-body {
@@ -76,4 +106,107 @@
   font-size: 14px;
   margin: auto;
   text-align: center;
+}
+
+.picker-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 14px 16px 16px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-maven);
+}
+
+.picker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.picker-header h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.picker-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  max-width: 36rem;
+}
+
+.picker-cancel {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 600;
+}
+
+.picker-scroll {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.picker-scroll h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.picker-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 12px;
+  padding: 8px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.picker-card:hover {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px #9bc4ad55;
+}
+
+.picker-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #e7efe6;
+}
+
+.picker-card span {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.picker-empty {
+  margin: auto;
+  color: var(--muted-foreground);
 }

@@ -17,6 +17,9 @@ export {
 } from './encoder';
 export type { PcmChunkerOptions } from './encoder';
 export { BrowserCaptureAdapter } from './browser-capture';
+export { ProcessLoopbackCaptureAdapter } from './process-loopback-capture';
+export type { ProcessLoopbackDesktopApi } from './process-loopback-capture';
+export { createPcmMediaStreamBridge } from './pcm-stream-bridge';
 export { createActivityMeter, levelFromTimeDomain } from './activity-meter';
 export type { ActivityMeterHandle } from './activity-meter';
 export { parseProviderPcmMime, pcm16leDurationMs, pcm16leHasSignal } from './pcm-mime';

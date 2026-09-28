@@ -348,6 +348,23 @@ body {
   color: var(--muted-foreground);
 }
 
+/* Keep language popover boxed even if Tailwind utilities fail to load */
+[data-slot='popover-content'].lang-popover {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px #122b2418;
+  overflow: hidden;
+  max-height: min(320px, 70vh);
+  padding: 0;
+}
+
+.lang-popover [data-slot='command-list'] {
+  max-height: 240px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .lang-popover [data-slot='command-input-wrapper'] [data-slot='input-group'] {
   border-color: var(--line);
   background: #f7faf6;

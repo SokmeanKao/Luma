@@ -21,7 +21,7 @@ Earlier audit items already fixed later (docs drift, restart history, friendly e
 | Voice + ducking E2E | **unverified** | Code present; suppress-capable tab proof pending |
 | `NEXT_PUBLIC_LUMA_MODE` | **live** | Supported: `live` \| `capture` \| `demo` |
 | F-04 Chrome/Edge capture matrix | **pending** | Env versions recorded; matrix empty |
-| F-05 Electron | **Phase A shell** | `@luma/desktop` runnable; capture still `getDisplayMedia`; loopback = Phase B |
+| F-05 Electron | **Phase B in progress** | Process-loopback host + desktop wiring; verify on Windows with app window + Text + voice |
 | Demo | explicit only | `?demo=1` — never silent fallback |
 
 ## Automated

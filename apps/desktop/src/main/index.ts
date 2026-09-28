@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { join } from 'path';
 import { IPC, type FloatTranscriptSnapshot } from '../shared/ipc';
+import { registerWinAudioIpc } from './win-audio-host';
 
 let workspaceWindow: BrowserWindow | null = null;
 let floatWindow: BrowserWindow | null = null;
@@ -14,6 +15,14 @@ function securePrefs(): Electron.WebPreferences {
     nodeIntegration: false,
     sandbox: true,
   };
+}
+
+/** Keep display-media available as text-only fallback (system loopback). */
+function enableDisplayMediaFallback(): void {
+  // Intentionally no auto-grant handler for primary path — process loopback is preferred.
+  // If renderer still calls getDisplayMedia, Chromium may fail without a handler; that is OK
+  // because LiveWorkspace uses ProcessLoopbackCaptureAdapter on desktop.
+  void session;
 }
 
 function isDev(): boolean {
@@ -106,7 +115,7 @@ function ensureFloatWindow(): BrowserWindow {
   return floatWindow;
 }
 
-function registerIpc(): void {
+function registerShellIpc(): void {
   ipcMain.handle(IPC.setAlwaysOnTop, (_event, flag: unknown) => {
     floatAlwaysOnTop = Boolean(flag);
     if (floatWindow && !floatWindow.isDestroyed()) {
@@ -144,7 +153,9 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
-  registerIpc();
+  enableDisplayMediaFallback();
+  registerShellIpc();
+  registerWinAudioIpc(() => workspaceWindow);
   workspaceWindow = createWorkspaceWindow();
 
   app.on('activate', () => {

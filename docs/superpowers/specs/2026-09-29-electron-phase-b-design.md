@@ -1,7 +1,7 @@
 # Electron Phase B — Per-process Windows audio capture
 
 **Date:** 2026-09-29  
-**Status:** Approved (design conversation); awaiting implementation after plan  
+**Status:** Implementation in progress (`@luma/win-audio` .NET host + desktop wiring)  
 **Requirements:** F-05, CAP-02, WIN-01 (already Phase A), Text + voice safety on desktop  
 **Depends on:** Electron Phase A (`feat/electron-phase-a` shell, float, window picker UI)  
 **Out of scope:** Installer/signing, macOS, Chrome-tab capture inside Electron, system-wide loopback as the primary live path

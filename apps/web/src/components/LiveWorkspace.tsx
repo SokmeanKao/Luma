@@ -23,6 +23,7 @@ import {
   BrowserCaptureAdapter,
   CaptureCancelledError,
   NoAudioTrackError,
+  ProcessLoopbackCaptureAdapter,
   createActivityMeter,
   createOriginalAudioMonitor,
   createTranslatedAudioPlayer,
@@ -591,7 +592,10 @@ export function LiveWorkspace({ headerExtra, onTranscriptSnapshot }: LiveWorkspa
     stopCaptureRef.current = null;
     streamRef.current = null;
 
-    const adapter = new BrowserCaptureAdapter();
+    const adapter =
+      typeof window !== 'undefined' && window.lumaDesktop
+        ? new ProcessLoopbackCaptureAdapter(window.lumaDesktop)
+        : new BrowserCaptureAdapter();
     try {
       const result = await adapter.start({
         preferredSourceKind: 'tab',
@@ -602,8 +606,12 @@ export function LiveWorkspace({ headerExtra, onTranscriptSnapshot }: LiveWorkspa
             setState('stopped');
             setErrorText(
               wasTranslating
-                ? 'The shared tab closed. Translation stopped.'
-                : 'The shared tab closed.',
+                ? typeof window !== 'undefined' && window.lumaDesktop
+                  ? 'The captured app closed or capture ended. Translation stopped.'
+                  : 'The shared tab closed. Translation stopped.'
+                : typeof window !== 'undefined' && window.lumaDesktop
+                  ? 'Capture ended.'
+                  : 'The shared tab closed.',
             );
             setErrorAction('choose-source');
           })();
@@ -626,14 +634,20 @@ export function LiveWorkspace({ headerExtra, onTranscriptSnapshot }: LiveWorkspa
       setSourceLabel(result.label);
       setSourceDetail(
         result.voicePlaybackSafe
-          ? result.localPlaybackSuppressed
-            ? 'Browser tab · Share tab audio · original routed through Luma'
-            : 'Browser tab · Share tab audio · browser kept local tab sound'
-          : result.displaySurface === 'monitor'
-            ? 'Entire screen · translated voice disabled (loop risk)'
-            : result.displaySurface === 'window'
-              ? 'Application window · translated voice disabled'
-              : 'Capture scope unknown · translated voice disabled',
+          ? typeof window !== 'undefined' && window.lumaDesktop
+            ? 'App window · per-process playback · Text + voice safe'
+            : result.localPlaybackSuppressed
+              ? 'Browser tab · Share tab audio · original routed through Luma'
+              : 'Browser tab · Share tab audio · browser kept local tab sound'
+          : typeof window !== 'undefined' && window.lumaDesktop
+            ? result.displaySurface === 'window'
+              ? 'App window · system playback audio · Text + voice off (feedback risk)'
+              : 'Screen · system playback audio · Text + voice off (feedback risk)'
+            : result.displaySurface === 'monitor'
+              ? 'Entire screen · translated voice disabled (loop risk)'
+              : result.displaySurface === 'window'
+                ? 'Application window · translated voice disabled'
+                : 'Capture scope unknown · translated voice disabled',
       );
       startActivityMeter(result.stream);
       setState('idle');
@@ -648,12 +662,21 @@ export function LiveWorkspace({ headerExtra, onTranscriptSnapshot }: LiveWorkspa
         return;
       }
       if (err instanceof NoAudioTrackError) {
-        setErrorText('No tab audio was shared. Choose the tab again and enable “Share tab audio”.');
+        setErrorText(
+          typeof window !== 'undefined' && 'lumaDesktop' in window
+            ? 'No playback audio was captured. On Windows desktop, play the meeting/video, then choose source again.'
+            : 'No tab audio was shared. Choose the tab again and enable “Share tab audio”.',
+        );
         setErrorAction('choose-source');
         setState('error');
         return;
       }
-      setErrorText(err instanceof Error ? err.message : 'Could not open the browser sharing dialog.');
+      const raw = err instanceof Error ? err.message : 'Could not open the browser sharing dialog.';
+      setErrorText(
+        raw === 'Not supported' || /not supported/i.test(raw)
+          ? 'Screen capture isn’t available yet in this window. Restart the Luma desktop app and try again.'
+          : raw,
+      );
       setErrorAction('choose-source');
       setState('error');
     }
@@ -1121,19 +1144,29 @@ export function LiveWorkspace({ headerExtra, onTranscriptSnapshot }: LiveWorkspa
         : !canStart || starting || state === 'connecting' || state === 'reconnecting';
   const showStop = busy || state === 'error' || state === 'quota_exhausted';
   const hasTranscript = entries.length > 0 || historyItems.length > 0;
+  const isDesktop =
+    typeof window !== 'undefined' && 'lumaDesktop' in window;
   const voiceUnavailableReason = !hasSource
-    ? 'Choose a Chrome tab (Teams / YouTube) with Share tab audio. Window or entire-screen capture can’t use Text + voice — Luma would hear its own speech.'
+    ? isDesktop
+      ? 'Choose an app window. Per-process capture enables Text + voice without feedback.'
+      : 'Choose a Chrome tab (Teams / YouTube) with Share tab audio. Window or entire-screen capture can’t use Text + voice — Luma would hear its own speech.'
     : !voicePlaybackSafe
-      ? sourceDetail.includes('window')
-        ? 'This capture is an app window. Stop, choose source again, and pick a Chrome Tab (not Window or Entire screen).'
-        : sourceDetail.includes('screen')
-          ? 'This capture is the entire screen. Stop, choose source again, and pick a Chrome Tab with Share tab audio.'
-          : 'This capture isn’t a browser tab (or the browser didn’t report one). Stop and re-share a Chrome Tab with Share tab audio.'
+      ? isDesktop
+        ? 'This capture isn’t per-process audio. Stop and choose an app window again.'
+        : sourceDetail.includes('window')
+          ? 'This capture is an app window. Stop, choose source again, and pick a Chrome Tab (not Window or Entire screen).'
+          : sourceDetail.includes('screen')
+            ? 'This capture is the entire screen. Stop, choose source again, and pick a Chrome Tab with Share tab audio.'
+            : 'This capture isn’t a browser tab (or the browser didn’t report one). Stop and re-share a Chrome Tab with Share tab audio.'
       : null;
   const voiceHelpShort = !hasSource
-    ? 'Needs a Chrome tab + Share tab audio.'
+    ? isDesktop
+      ? 'Pick an app window for voice.'
+      : 'Needs a Chrome tab + Share tab audio.'
     : !voicePlaybackSafe
-      ? 'Needs a Chrome tab (not window/screen).'
+      ? isDesktop
+        ? 'Needs per-process window capture.'
+        : 'Needs a Chrome tab (not window/screen).'
       : null;
   const sourceLabelName = languageName(caps, sourceLang);
   const targetLabelName = languageName(caps, targetLang);

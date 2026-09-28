@@ -8,6 +8,11 @@ const webSrc = resolve(__dirname, '../web/src');
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    resolve: {
+      alias: {
+        '@luma/win-audio': resolve(__dirname, '../../packages/win-audio/index.js'),
+      },
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
@@ -28,6 +33,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
           float: resolve(__dirname, 'src/renderer/float.html'),
+          picker: resolve(__dirname, 'src/renderer/picker.html'),
         },
       },
     },
