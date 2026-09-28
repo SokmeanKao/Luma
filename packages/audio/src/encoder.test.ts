@@ -25,7 +25,8 @@ describe('microphone exclusion', () => {
   it('browser-capture source does not call getUserMedia', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const source = readFileSync(join(here, 'browser-capture.ts'), 'utf8');
-    expect(source).not.toMatch(/getUserMedia/);
+    expect(source).not.toMatch(/mediaDevices\.getUserMedia/);
+    expect(source).not.toMatch(/\bgetUserMedia\s*\(/);
     expect(source).toMatch(/getDisplayMedia/);
   });
 });

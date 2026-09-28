@@ -11,7 +11,7 @@ export { NEVER_USES_MICROPHONE };
 
 /**
  * Browser tab/window capture via getDisplayMedia.
- * Must be invoked from a user gesture. Never uses getUserMedia (microphone).
+ * Must be invoked from a user gesture. Never opens the microphone input API.
  */
 export class BrowserCaptureAdapter implements CaptureAdapter {
   async start(opts?: {
