@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build / tooling output
+dist/
+.dist/
+build/
+out/
+.next/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# Worktrees
+.worktrees/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+**/secrets/
+
+# Logs and OS
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test / cache
+.cache/
+.playwright/
+test-results/
+playwright-report/
+
+# Go
+services/api/bin/
+*.exe
+*.test
+*.out
+
+# Superpowers / agent scratch (local)
+.superpowers/
