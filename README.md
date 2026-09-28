@@ -1,26 +1,28 @@
 # Luma
 
-Personal live audio translation companion (Korean → English initially). Web MVP with explicit **demo mode**, shared packages, and a Go token-service stub that returns **not configured** (never a fabricated token).
+Personal live audio translation companion (Korean → English). Default UI is the **real** tab-capture → Gemini Live Translate → English subtitles flow. Demo samples are explicit-only (`Open Dev demo`).
 
 ## Workspace layout
 
 | Path | Responsibility |
 |---|---|
-| `apps/web` | Next.js App Router UI (demo mode default) |
-| `packages/ui` | Shared React controls and styles |
-| `packages/translation` | Session state, mock provider, transcript assembly |
-| `packages/audio` | Capture/encoder interfaces (display-media only; no microphone) |
-| `services/api` | Go health / capabilities / live-token stub |
+| `apps/web` | Next.js App Router — LiveWorkspace (default) |
+| `packages/ui` | Shared React controls and styles (Maven Pro + Noto Sans KR) |
+| `packages/translation` | Gemini Live provider, session, language filter, mock (tests/demo) |
+| `packages/audio` | `getDisplayMedia` capture + PCM encoder (no microphone) |
+| `services/api` | Go loopback API: health, capabilities, ephemeral live-token mint |
 | `docs/feasibility/STATUS.md` | Per-gate feasibility status |
-| `docs/CHECKLIST.md` | Foundation verification checklist |
 
-## Modes
+## Start (PowerShell)
 
-| Mode | What it does |
-|---|---|
-| **Demo** | Sample subtitles only — not capture, not Gemini |
-| **Capture test** | Real browser tab/window share + activity meter — **no Gemini** |
-| **Live** | Disabled until F-04 evidence + provider gates pass |
+Terminal 1 — Go API (loads repo-root `.env`):
+
+```powershell
+cd C:\Dev\Luma\.worktrees\luma-foundation\services\api
+go run ./cmd/server
+```
+
+Terminal 2 — Next.js:
 
 ```powershell
 cd C:\Dev\Luma\.worktrees\luma-foundation
@@ -28,47 +30,34 @@ pnpm install
 pnpm dev
 ```
 
-Open http://localhost:3000 → use **Capture test** → **Select audio source** → enable Share tab audio. Record results in `docs/feasibility/F04_CAPTURE_EVIDENCE.md`.
+Open http://localhost:3000
+
+1. **Select audio source** → choose a YouTube/Teams tab → enable **Share tab audio**
+2. Confirm the activity meter moves with playback
+3. **Start translation** → English subtitles from Korean speech
+
+Never enable billing, push, or deploy from this MVP path.
 
 ## Credentials (local only)
 
-Documented in `docs/ENV_SETUP.md`.
-
-```powershell
-cd C:\Dev\Luma\.worktrees\luma-foundation
-Copy-Item .env.example .env
-# Edit .env locally — never commit it. Never use NEXT_PUBLIC_ for GEMINI_API_KEY.
-```
+See `docs/ENV_SETUP.md`. Never commit `.env`. Never put `GEMINI_API_KEY` in `NEXT_PUBLIC_*`.
 
 | Variable | Where | Notes |
 |---|---|---|
-| `GEMINI_API_KEY` | `.env` / process env for Go | Server-side only |
-| `GEMINI_MODEL` | `.env` | Required before mint |
-| `ENABLE_LIVE_TOKEN_MINT` | `.env` | Default `false` |
-| `NEXT_PUBLIC_API_BASE` | `.env` | Public loopback URL only |
+| `GEMINI_API_KEY` | `.env` (Go) | Permanent key, backend only |
+| `GEMINI_MODEL` | `.env` | e.g. `gemini-3.5-live-translate-preview` |
+| `ENABLE_LIVE_TOKEN_MINT` | `.env` | `true` for local mint |
+| `FREE_TIER_ELIGIBILITY_CONFIRMED` | `.env` | `true` only after you verify free-tier eligibility |
+| `NEXT_PUBLIC_API_BASE` | `.env` | `http://127.0.0.1:8080` |
 
-Live UI stays disabled until integration gates pass. Billing, push, and deploy remain off.
+## Modes
 
+| Mode | How | Notes |
+|---|---|---|
+| **Live (default)** | Homepage | Real capture + Gemini; failures never fall back to demo |
+| **Dev demo** | Sidebar “Open Dev demo” | Sample subtitles only |
 
-
-Go API (separate terminal):
-
-```powershell
-cd C:\Dev\Luma\.worktrees\luma-foundation\services\api
-go test ./...
-go run ./cmd/server
-```
-
-Health: http://127.0.0.1:8080/healthz  
-Live token (always not configured):
-
-```powershell
-Invoke-RestMethod -Method POST -Uri http://127.0.0.1:8080/api/v1/live-token `
-  -ContentType 'application/json' `
-  -Body '{"sourceLanguage":"ko","targetLanguage":"en"}'
-```
-
-### Tests
+## Automated checks
 
 ```powershell
 cd C:\Dev\Luma\.worktrees\luma-foundation
@@ -76,20 +65,22 @@ pnpm --filter @luma/translation test
 pnpm --filter @luma/audio test
 pnpm --filter @luma/web build
 cd services\api; go test ./...
-cd ..\..\apps\web; pnpm exec playwright test
 ```
 
-Playwright uses the system Chrome channel (`channel: 'chrome'`) because downloading Playwright’s bundled Chromium timed out in this environment.
+Mint smoke (does **not** prove translation):
 
-### Environment
+```powershell
+Invoke-RestMethod -Method POST -Uri http://127.0.0.1:8080/api/v1/live-token `
+  -ContentType 'application/json' `
+  -Body '{"sourceLanguage":"ko","targetLanguage":"en"}'
+```
 
-Copy `.env.example` to `.env` if needed. Never put provider secrets in `NEXT_PUBLIC_*`. Default `NEXT_PUBLIC_LUMA_MODE=demo`.
+## Evidence
 
-## Docs
+| Doc | Purpose |
+|---|---|
+| `docs/feasibility/STATUS.md` | Checklist |
+| `docs/feasibility/F01_LIVE_TRANSLATE_EVIDENCE.md` | Live translate + filter |
+| `docs/feasibility/F04_CAPTURE_EVIDENCE.md` | Chrome/Edge capture matrix |
 
-1. `docs/REQUIREMENTS.md` — product specification  
-2. `design/Luma_Translation_Mockup.html` — visual reference  
-3. `docs/IMPLEMENTATION.md` / `docs/SOURCES.md` — architecture and upstream links  
-4. `docs/superpowers/plans/2026-09-28-luma-foundation.md` — foundation plan  
-5. `docs/feasibility/STATUS.md` — gate status  
-6. `docs/CHECKLIST.md` — verification mapping  
+Electron / Windows installer (F-05) starts after web verification.

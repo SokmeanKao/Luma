@@ -88,6 +88,9 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
   const firstSeen = useRef(false);
   const secondsRef = useRef(0);
   const translatingRef = useRef(false);
+  const activeGenerationRef = useRef(0);
+  const activeSessionIdRef = useRef<string | null>(null);
+  const reconnectingRef = useRef(false);
 
   useEffect(() => {
     secondsRef.current = seconds;
@@ -160,6 +163,9 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
     await providerRef.current?.close();
     providerRef.current = null;
     sessionRef.current?.stop();
+    activeGenerationRef.current = sessionRef.current?.getGenerationId() ?? activeGenerationRef.current + 1;
+    activeSessionIdRef.current = null;
+    reconnectingRef.current = false;
     releaseCapture();
     translatingRef.current = false;
     setStarting(false);
@@ -320,9 +326,13 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
       return;
     }
 
+    const sessionId = `luma-${Date.now()}`;
+    activeSessionIdRef.current = sessionId;
     const provider = new GeminiLiveProvider();
     providerRef.current = provider;
     provider.on('transcript', (payload) => {
+      if (providerRef.current !== provider) return;
+      if (activeSessionIdRef.current !== sessionId) return;
       const update = payload as TranscriptUpdate;
       if (!firstSeen.current && update.translatedText.trim()) {
         firstSeen.current = true;
@@ -332,15 +342,84 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
       }
       session.acceptTranscript({
         ...update,
+        sessionId,
         captureTimestamp: secondsRef.current * 1000,
-        generationId: session.getGenerationId(),
+        generationId: activeGenerationRef.current,
       });
     });
     provider.on('error', (payload) => {
+      if (providerRef.current !== provider) return;
+      if (activeSessionIdRef.current !== sessionId) return;
       const err = payload as ProviderError;
+      if (err.code === 'QUOTA_EXHAUSTED') {
+        translatingRef.current = false;
+        provider.pauseSending();
+        setErrorText(`${err.code}: ${err.message}. Stopped. No paid fallback.`);
+        setState('quota_exhausted');
+        return;
+      }
+      if (err.code === 'SESSION_EXPIRED' || err.code === 'NETWORK') {
+        if (reconnectingRef.current) {
+          translatingRef.current = false;
+          setErrorText(`${err.code}: ${err.message}. Reconnect already attempted. No demo fallback.`);
+          setState('error');
+          return;
+        }
+        reconnectingRef.current = true;
+        setState('reconnecting');
+        setMetrics((m) => `${m} · transcript gap (connection dropped)`);
+        setErrorText(`${err.code}: ${err.message}. Reconnecting…`);
+        void (async () => {
+          try {
+            provider.pauseSending();
+            await provider.close();
+            const next = await fetchLiveToken();
+            if (activeSessionIdRef.current !== sessionId || providerRef.current !== provider) return;
+            await provider.connect(
+              {
+                mode: 'real',
+                sourceLanguage: 'ko',
+                targetLanguage: 'en',
+                sessionId,
+              },
+              {
+                token: next.temporaryCredential,
+                expiresAt: next.expiresAt,
+                model: next.model,
+                apiVersion: next.apiVersion,
+                websocketUrl: next.websocketUrl,
+                targetLanguageCode: next.targetLanguageCode,
+                echoTargetLanguage: next.echoTargetLanguage,
+                setupLocked: next.setupLocked,
+              },
+            );
+            if (activeSessionIdRef.current !== sessionId || providerRef.current !== provider) {
+              await provider.close();
+              return;
+            }
+            reconnectingRef.current = false;
+            setErrorText(null);
+            setMetrics((m) => `${m} · reconnected (gap already marked)`);
+            if (session.getState() === 'paused') {
+              provider.pauseSending();
+              setState('paused');
+            } else {
+              setState('listening');
+              translatingRef.current = true;
+            }
+          } catch (reconnectErr) {
+            if (activeSessionIdRef.current !== sessionId) return;
+            translatingRef.current = false;
+            setErrorText(
+              `Reconnect failed: ${reconnectErr instanceof Error ? reconnectErr.message : 'unknown'}. No demo fallback.`,
+            );
+            setState('error');
+          }
+        })();
+        return;
+      }
       setErrorText(`${err.code}: ${err.message}. No demo fallback.`);
-      if (err.code === 'QUOTA_EXHAUSTED') setState('quota_exhausted');
-      else if (session.getState() !== 'stopped') setState('error');
+      if (session.getState() !== 'stopped') setState('error');
     });
 
     try {
@@ -352,7 +431,7 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
           mode: 'real',
           sourceLanguage: 'ko',
           targetLanguage: 'en',
-          sessionId: `luma-${Date.now()}`,
+          sessionId,
         },
         {
           token: token.temporaryCredential,
@@ -369,16 +448,20 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
         mode: 'real',
         sourceLanguage: 'ko',
         targetLanguage: 'en',
-        sessionId: `luma-${Date.now()}`,
+        sessionId,
       });
+      activeGenerationRef.current = session.getGenerationId();
+      reconnectingRef.current = false;
       attachPcmPipeline(stream, provider);
       translatingRef.current = true;
       setMetrics((m) => `${m} · streaming PCM`);
     } catch (err) {
       stopPcmGraph();
       await provider.close();
-      providerRef.current = null;
+      if (providerRef.current === provider) providerRef.current = null;
       session.stop();
+      activeGenerationRef.current = session.getGenerationId();
+      activeSessionIdRef.current = null;
       const pe = err instanceof ProviderError ? err : null;
       setErrorText(
         `${pe?.code ?? 'ERROR'}: ${err instanceof Error ? err.message : 'Connect failed'}. No demo fallback.`,
@@ -390,6 +473,7 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
   }
 
   function onPrimary() {
+    if (state === 'reconnecting' || starting) return;
     if (state === 'listening') {
       sessionRef.current?.pause();
       providerRef.current?.pauseSending();
@@ -417,9 +501,20 @@ export function LiveWorkspace({ onOpenDemo }: { onOpenDemo: () => void }) {
     fontSize,
   }));
 
-  const busy = state === 'listening' || state === 'paused' || state === 'connecting' || starting;
+  const busy =
+    state === 'listening' ||
+    state === 'paused' ||
+    state === 'connecting' ||
+    state === 'reconnecting' ||
+    starting;
   const primaryLabel =
-    state === 'listening' ? 'Ⅱ  Pause' : state === 'paused' ? '▶  Resume' : '▶  Start translation';
+    state === 'listening'
+      ? 'Ⅱ  Pause'
+      : state === 'paused'
+        ? '▶  Resume'
+        : state === 'reconnecting'
+          ? 'Reconnecting…'
+          : '▶  Start translation';
 
   return (
     <div className="app">
