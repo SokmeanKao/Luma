@@ -47,7 +47,8 @@ export function registerWinAudioIpc(getWorkspace: () => BrowserWindow | null): v
       });
 
       try {
-        winAudio.startProcessLoopback(hwnd ? { hwnd } : { pid });
+        if (pid > 0) winAudio.startProcessLoopback({ pid });
+        else winAudio.startProcessLoopback({ hwnd });
       } catch (err) {
         pcmUnsub?.();
         endedUnsub?.();

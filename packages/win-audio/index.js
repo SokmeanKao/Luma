@@ -1,9 +1,13 @@
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
 const hostCandidates = [
+  // Packaged Electron: extraResources → resources/win-audio-host/
+  ...(process.resourcesPath
+    ? [path.join(process.resourcesPath, 'win-audio-host', 'luma-win-audio-host.exe')]
+    : []),
   path.join(__dirname, 'host', 'bin', 'Release', 'net10.0-windows', 'luma-win-audio-host.exe'),
   path.join(__dirname, 'host', 'bin', 'Debug', 'net10.0-windows', 'luma-win-audio-host.exe'),
 ];
@@ -91,8 +95,11 @@ function startProcessLoopback(opts) {
     process.stderr.write(`[win-audio-host] ${d}`);
   });
 
-  child.on('exit', () => {
+  child.on('exit', (code, signal) => {
     child = null;
+    if (code && code !== 0) {
+      console.error(`[win-audio-host] exited code=${code} signal=${signal || ''}`);
+    }
     endedHandler?.();
   });
 
@@ -116,6 +123,49 @@ function startProcessLoopback(opts) {
   });
 }
 
+function listWindows() {
+  const host = resolveHost();
+  if (!host) throw new Error('luma-win-audio-host.exe not found — run pnpm --filter @luma/win-audio build');
+  const r = spawnSync(host, ['--list-windows'], {
+    encoding: 'utf8',
+    windowsHide: true,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (r.status !== 0) {
+    throw new Error(r.stderr || `list-windows failed (${r.status})`);
+  }
+  const raw = (r.stdout || '').trim();
+  if (!raw) return [];
+  /** @type {Array<{ hwnd: number, pid: number, title: string, processName?: string }>} */
+  const parsed = JSON.parse(raw);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+/**
+ * Capture PNG data-URL thumbnails for HWNDs via PrintWindow.
+ * @param {number[]} hwnds
+ * @returns {Record<string, string | null>}
+ */
+function captureThumbnails(hwnds) {
+  const host = resolveHost();
+  if (!host) throw new Error('luma-win-audio-host.exe not found — run pnpm --filter @luma/win-audio build');
+  const unique = [...new Set(hwnds.filter((h) => Number.isFinite(h) && h > 0).map((h) => Math.trunc(h)))];
+  if (unique.length === 0) return {};
+  const r = spawnSync(host, ['--thumbnails', ...unique.map(String)], {
+    encoding: 'utf8',
+    windowsHide: true,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (r.status !== 0) {
+    throw new Error(r.stderr || `thumbnails failed (${r.status})`);
+  }
+  const raw = (r.stdout || '').trim();
+  if (!raw) return {};
+  /** @type {Record<string, string | null>} */
+  const parsed = JSON.parse(raw);
+  return parsed && typeof parsed === 'object' ? parsed : {};
+}
+
 module.exports = {
   isSupported,
   hwndToPid,
@@ -124,4 +174,6 @@ module.exports = {
   onPcm,
   onEnded,
   resolveHost,
+  listWindows,
+  captureThumbnails,
 };

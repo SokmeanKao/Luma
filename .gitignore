@@ -6,6 +6,9 @@ node_modules/
 dist/
 .dist/
 build/
+!apps/desktop/build/
+!apps/desktop/build/icon.ico
+!apps/desktop/build/icon.png
 out/
 .next/
 .turbo/

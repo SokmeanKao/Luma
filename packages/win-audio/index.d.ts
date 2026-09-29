@@ -15,6 +15,13 @@ export type WinAudioBinding = {
   onPcm(cb: (pcm: Buffer, meta: PcmMeta) => void): () => void;
   onEnded(cb: () => void): () => void;
   resolveHost?(): string | null;
+  listWindows?(): Array<{
+    hwnd: number;
+    pid: number;
+    title: string;
+    processName?: string;
+  }>;
+  captureThumbnails?(hwnds: number[]): Record<string, string | null>;
 };
 
 declare const binding: WinAudioBinding;

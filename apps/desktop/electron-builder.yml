@@ -1,0 +1,35 @@
+appId: com.luma.desktop
+productName: Luma
+copyright: Copyright © Luma
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+asar: true
+asarUnpack:
+  - '**/node_modules/@luma/win-audio/**'
+extraResources:
+  - from: ../../packages/win-audio/host/bin/Release/net10.0-windows/
+    to: win-audio-host
+    filter:
+      - luma-win-audio-host.exe
+      - '*.dll'
+      - '*.json'
+      - '*.pdb'
+win:
+  icon: build/icon.ico
+  target:
+    - target: msi
+      arch:
+        - x64
+  artifactName: Luma-${version}-win-${arch}.${ext}
+msi:
+  oneClick: false
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Luma
+npmRebuild: false
+electronVersion: 35.0.0
