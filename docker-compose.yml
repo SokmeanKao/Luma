@@ -1,0 +1,20 @@
+# Luma API — run on any PC with Docker
+# Usage:
+#   set GEMINI_API_KEY=your_key   (PowerShell: $env:GEMINI_API_KEY='...')
+#   docker compose up
+#
+# Desktop app (MSI) on the same Windows machine still talks to http://127.0.0.1:8080
+
+services:
+  api:
+    image: ghcr.io/sokmeankao/luma-api:0.0.1-ci.1
+    ports:
+      - '8080:8080'
+    environment:
+      BIND_ADDR: 0.0.0.0:8080
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY}
+      ENABLE_LIVE_TOKEN_MINT: 'true'
+      ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,app://.
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-live-translate-preview}
+      TARGET_LANGUAGE_CODE: ${TARGET_LANGUAGE_CODE:-en}
+    restart: unless-stopped
