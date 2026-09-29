@@ -510,7 +510,7 @@ internal static class Program
         {
             if (iid == IID_IMarshal && _ftm != IntPtr.Zero)
             {
-                var hr = Marshal.QueryInterface(_ftm, ref iid, out ppv);
+                var hr = Marshal.QueryInterface(_ftm, in iid, out ppv);
                 return hr >= 0 ? CustomQueryInterfaceResult.Handled : CustomQueryInterfaceResult.Failed;
             }
             ppv = IntPtr.Zero;
