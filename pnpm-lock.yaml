@@ -76,7 +76,7 @@ importers:
         specifier: ^35.0.0
         version: 35.7.5
       electron-builder:
-        specifier: ^24.13.3
+        specifier: 24.13.3
         version: 24.13.3(electron-builder-squirrel-windows@26.15.3(dmg-builder@24.13.3))
       electron-vite:
         specifier: ^3.0.0
